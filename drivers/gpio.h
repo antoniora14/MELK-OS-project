@@ -13,4 +13,9 @@ void gpio_toggle_red_led(void);
 void gpio_red_led_on(void);
 void gpio_red_led_off(void);
 
+void gpio_green_led_on(void);
+void gpio_green_led_off(void);
+void gpio_toggle_green_led(void);
+
+
 #endif /* DRIVERS_GPIO_H_ */

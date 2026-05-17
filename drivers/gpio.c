@@ -34,51 +34,35 @@
  */
 #define GPIO_PORTF_CLOCK       (1U << 5)
 #define RED_LED                (1U << 1)
+#define BLUE_LED               (1U << 2)
+#define GREEN_LED              (1U << 3)
+
+#define RGB_LEDS     (RED_LED | BLUE_LED | GREEN_LED)
 
 
 void gpio_init(void)
 {
-    /*
-     * Enable GPIO Port F clock.
-     */
+    // Enable GPIO Port F clock.
     SYSCTL_RCGCGPIO_R |= GPIO_PORTF_CLOCK;
 
-    /*
-     * Wait until GPIO Port F is ready.
-     */
+    // Wait until GPIO Port F is ready.
     while ((SYSCTL_PRGPIO_R & GPIO_PORTF_CLOCK) == 0)
     {
     }
 
-    /*
-     * Disable alternate function for PF1.
-     */
-    GPIO_PORTF_AFSEL_R &= ~RED_LED;
+    // Disable alternate and analog functions for PF1.
+    GPIO_PORTF_AFSEL_R &= ~RGB_LEDS;
+    GPIO_PORTF_AMSEL_R &= ~RGB_LEDS;
 
-    /*
-     * Disable analog function for PF1.
-     */
-    GPIO_PORTF_AMSEL_R &= ~RED_LED;
-
-    /*
-     * Configure PF1 as GPIO in PCTL.
-     */
+    // Configure PF1 as GPIO in PCTL.
     GPIO_PORTF_PCTL_R &= ~0x000000F0;
 
-    /*
-     * Configure PF1 as output.
-     */
-    GPIO_PORTF_DIR_R |= RED_LED;
-
-    /*
-     * Enable digital function for PF1.
-     */
-    GPIO_PORTF_DEN_R |= RED_LED;
-
-    /*
-     * Start with LED off.
-     */
-    GPIO_PORTF_DATA_R &= ~RED_LED;
+    // Configure PF1 as output.
+    GPIO_PORTF_DIR_R |= RGB_LEDS;
+    // Enable digital function for PF1.
+    GPIO_PORTF_DEN_R |= RGB_LEDS;
+    // Start with LEDs off.
+    GPIO_PORTF_DATA_R &= ~RGB_LEDS;
 }
 
 void gpio_toggle_red_led(void)
@@ -94,4 +78,19 @@ void gpio_red_led_on(void)
 void gpio_red_led_off(void)
 {
     GPIO_PORTF_DATA_R &= ~RED_LED;
+}
+
+void gpio_green_led_on(void)
+{
+    GPIO_PORTF_DATA_R |= GREEN_LED;
+}
+
+void gpio_green_led_off(void)
+{
+    GPIO_PORTF_DATA_R &= ~GREEN_LED;
+}
+
+void gpio_toggle_green_led(void)
+{
+    GPIO_PORTF_DATA_R ^= GREEN_LED;
 }

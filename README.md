@@ -44,17 +44,16 @@ The project is designed to help understand:
 
 ## 🎛️ Target Platform
 
-The initial target platform is:
+The TM4C123GH6PM is currently configured to run at:
 
 ```text
-Board : Texas Instruments EK-TM4C123GXL LaunchPad
-MCU   : TM4C123GH6PM
-Core  : ARM Cortex-M4F
-Flash : 256 KB
-SRAM  : 32 KB
+System Clock : 80 MHz
+Clock Source : 16 MHz external crystal + PLL
+PLL Path     : 400 MHz PLL VCO divided down to 80 MHz
+SysTick      : 1 ms kernel tick
 ```
 
-Current Phase 1 development uses the default system clock configuration provided after reset. Explicit system clock and PLL configuration will be implemented in the next phase.
+Current Phase 2 development configures the system clock explicitly using the PLL.
 
 Future support may include other ARM Cortex-M microcontrollers.
 
@@ -121,7 +120,7 @@ This project is mainly educational and experimental.
 
 ## 📁 Current Repository Structure
 
-Current Phase 1 structure:
+Current Phase 2 structure:
 
 ```text
 MELK_OS/
@@ -146,7 +145,9 @@ MELK_OS/
 │   ├── kernel.c
 │   ├── kernel.h
 │   ├── printk.c
-│   └── printk.h
+│   ├── printk.h
+│   ├── systick.c
+│   └── systick.h
 │
 └── README.md
 ```
@@ -160,6 +161,7 @@ MELK_OS/
 
 ```text
 boot/
+system/
 ```
 
 Contains the lowest-level boot code executed after reset:
@@ -188,8 +190,10 @@ Contains system-level initialization code.
 Current status:
 
 - `SystemInit()` exists
-- Clock configuration is still using the reset/default configuration
-- Explicit PLL/system clock configuration will be added in the next phase
+- PLL-based system clock configuration is implemented
+- `SYSTEM_CLOCK_HZ` is configurable from `system/system.h`
+- Current default system clock is `80000000U`
+- System clock is exposed through system_get_clock_hz()
 
 ```text
 drivers/
@@ -212,6 +216,10 @@ Current implemented modules:
 
 - `kernel_main()`
 - `kernel_print()`
+- `kernel_print_uint32()`
+- SysTick-based kernel tick
+- `os_get_ticks()`
+- `os_delay_ms()`
 
 ---
 
@@ -272,17 +280,21 @@ Main kernel loop
 
 ### 🔵 Phase 2 — System Clock and SysTick Timer
 
-Planned:
+Status: **Completed**
 
 - Configure system clock explicitly
-- Configure PLL
-- Define `SYSTEM_CLOCK_HZ`
+- Configure PLL using the 400 MHz PLL path
+- Define configurable `SYSTEM_CLOCK_HZ`
 - Configure SysTick for 1 ms tick
 - Implement `SysTick_Handler`
 - Implement kernel tick counter
 - Implement `os_get_ticks()`
 - Implement `os_delay_ms()`
 - Replace busy-wait delays with tick-based delays
+- Add SysTick clock validation and reload-limit checking
+- Add optional `systick_stop()` and `systick_reset_ticks()`
+- Configure UART0 baudrate from the active system clock
+- Print configured clock and OS tick rate through UART0
 
 ---
 
@@ -361,97 +373,29 @@ Planned:
 
 ---
 
-## 🧠 Phase 1 Technical Notes
 
-### Vector Table Placement
 
-For ARM Cortex-M, the vector table must be placed at address:
-
-```text
-0x00000000
-```
-
-At reset, the CPU reads:
-
-```text
-0x00000000 → Initial Stack Pointer
-0x00000004 → Reset_Handler address
-```
-
-For this reason, the linker command file defines a dedicated memory region:
-
-```text
-VECTORS origin = 0x00000000
-FLASH   origin = 0x00000400
-```
-
-This prevents `.text` or other sections from being placed before the vector table.
-
-### Current Memory Layout
-
-```text
-VECTORS : 0x00000000 - 0x000003FF
-FLASH   : 0x00000400 - 0x0003FFFF
-SRAM    : 0x20000000 - 0x20007FFF
-STACK   : 0x20008000
-```
-
-### UART0 Configuration
-
-UART0 is used as the early kernel console.
-
-```text
-UART  : UART0
-RX    : PA0
-TX    : PA1
-Baud  : 115200
-Data  : 8 bits
-Parity: None
-Stop  : 1 bit
-Flow  : None
-```
-
-The UART output is available through the LaunchPad virtual COM port.
-
----
-
-## 🧪 Current Phase 1 Demo
+## 🧪 Current Phase 2 Demo
 
 The current firmware:
 
 - Boots using a custom vector table
 - Enters `Reset_Handler`
-- Initializes memory sections
-- Jumps to `kernel_main`
+- Initializes `.data`
+- Clears `.bss`
+- Calls `SystemInit()`
+- Configures the PLL-based system clock
+- Jumps to `kernel_main()`
 - Initializes GPIO
-- Initializes UART0
-- Prints boot messages
-- Blinks the red LED on PF1
-
-Expected UART output:
-
-```text
-================================
- MELK OS - Phase 1
- Bare-metal boot successful
- UART0 console initialized
-================================
-MELK OS is running...
-MELK OS is running...
-MELK OS is running...
-```
-
-Expected board behavior:
-
-```text
-Red LED on PF1 blinks continuously.
-```
+- Initializes UART0 using the active system clock
+- Initializes SysTick as a 1 ms kernel tick
+- Prints boot messages through UART0
+- Prints the configured system clock and OS tick rate
+- Blinks the red LED on PF1 using `os_delay_ms()`
 
 ---
 
 ## 🧰 Build Requirements
-
-Current Phase 1 requirements:
 
 - Code Composer Studio 10.4.0
 - TI ARM Compiler v20.2.6.LTS
@@ -547,7 +491,7 @@ Planned documentation:
 Current development stage:
 
 ```text
-Phase 1 — Completed
+Phase 2 — Implemented, pending CCS build and hardware validation
 ```
 
 Implemented:
@@ -564,13 +508,26 @@ Implemented:
 - ✅ GPIO driver
 - ✅ Red LED blink
 - ✅ UART0 driver
+- ✅ UART0 baudrate calculated from active system clock
 - ✅ `kernel_print()`
+- ✅ `kernel_print_uint32()`
 - ✅ UART boot messages
+- ✅ PLL system clock configuration
+- ✅ Configurable `SYSTEM_CLOCK_HZ`
+- ✅ `system_get_clock_hz()`
+- ✅ SysTick 1 ms system tick
+- ✅ `SysTick_Handler`
+- ✅ Kernel tick counter
+- ✅ `os_get_ticks()`
+- ✅ `os_delay_ms()`
+- ✅ Busy-wait delays replaced with tick-based delays
+- ✅ SysTick validation and optional control helpers
+- ✅ UART output of configured clock and tick rate
 
 Next milestone:
 
 ```text
-Phase 2 — System Clock and SysTick Timer
+Phase 3 — Task Management
 ```
 
 ---
@@ -594,11 +551,14 @@ Examples:
 ```c
 kernel_main();
 kernel_print();
+kernel_print_uint32();
 
 task_create();
 
 os_delay_ms();
 os_get_ticks();
+systick_stop();
+systick_reset_ticks();
 os_sleep();
 
 uart0_init();

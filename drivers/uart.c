@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "uart.h"
+#include "system.h"
 
 /*
  * UART0:
@@ -7,7 +8,7 @@
  * PA1 -> U0TX
  *
  * Baudrate: 115200
- * Clock assumed: 16 MHz
+ * Clock source: System clock
  */
 
 /* System Control base registers */
@@ -18,6 +19,8 @@
 
 #define SYSCTL_UART0_CLOCK     (1U << 0)
 #define SYSCTL_GPIOA_CLOCK     (1U << 0)
+
+#define UART0_BAUD_RATE        115200U
 
 /* UART0 base */
 #define UART0_BASE             0x4000C000
@@ -57,6 +60,12 @@
 
 void uart0_init(void)
 {
+    uint32_t system_clock_hz;
+    uint32_t baud_divisor;
+    uint32_t integer_divisor;
+    uint32_t remainder;
+    uint32_t fractional_divisor;
+
     /*
      * 1. Enable UART0 clock.
      */
@@ -90,19 +99,23 @@ void uart0_init(void)
     UART0_CC_R = 0x0;
 
     /*
-     * 6. Configure baudrate.
-     *
-     * Assuming system clock = 16 MHz.
-     *
-     * Baud divisor = 16,000,000 / (16 * 115,200)
-     *              = 8.6805
-     *
-     * IBRD = 8
-     * FBRD = integer(0.6805 * 64 + 0.5)
-     *      = 44
+     * 6. Configure baudrate from the active system clock.
      */
-    UART0_IBRD_R = 8;
-    UART0_FBRD_R = 44;
+    system_clock_hz = system_get_clock_hz();
+    baud_divisor = 16U * UART0_BAUD_RATE;
+    integer_divisor = system_clock_hz / baud_divisor;
+    remainder = system_clock_hz % baud_divisor;
+    fractional_divisor = ((remainder * 64U) + (baud_divisor / 2U)) /
+                         baud_divisor;
+
+    if (fractional_divisor == 64U)
+    {
+        integer_divisor++;
+        fractional_divisor = 0U;
+    }
+
+    UART0_IBRD_R = integer_divisor;
+    UART0_FBRD_R = fractional_divisor;
 
     /*
      * 7. 8-bit, no parity, 1 stop bit, FIFO enabled.

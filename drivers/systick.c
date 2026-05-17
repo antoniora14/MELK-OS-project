@@ -18,9 +18,39 @@
 
 static volatile uint32_t g_os_ticks;
 
-void systick_init(uint32_t system_clock_hz)
+static uint32_t systick_is_valid_clock(uint32_t system_clock_hz)
 {
     uint32_t reload_value;
+
+    if (system_clock_hz == 0U)
+    {
+        return 0U;
+    }
+
+    if ((system_clock_hz % OS_TICKS_PER_SECOND) != 0U)
+    {
+        return 0U;
+    }
+
+    reload_value = (system_clock_hz / OS_TICKS_PER_SECOND) - 1U;
+    if (reload_value > SYSTICK_MAX_RELOAD)
+    {
+        return 0U;
+    }
+
+    return 1U;
+}
+
+uint32_t systick_init(uint32_t system_clock_hz)
+{
+    uint32_t reload_value;
+
+    if (systick_is_valid_clock(system_clock_hz) == 0U)
+    {
+        systick_stop();
+        g_os_ticks = 0U;
+        return SYSTICK_ERROR_CLOCK;
+    }
 
     reload_value = (system_clock_hz / OS_TICKS_PER_SECOND) - 1U;
 
@@ -31,6 +61,19 @@ void systick_init(uint32_t system_clock_hz)
     SYSTICK_CTRL_R = SYSTICK_CTRL_CLKSOURCE |
                      SYSTICK_CTRL_TICKINT |
                      SYSTICK_CTRL_ENABLE;
+
+    return SYSTICK_OK;
+}
+
+void systick_stop(void)
+{
+    SYSTICK_CTRL_R = 0U;
+    SYSTICK_CURRENT_R = 0U;
+}
+
+void systick_reset_ticks(void)
+{
+    g_os_ticks = 0U;
 }
 
 void systick_tick(void)
