@@ -23,6 +23,8 @@
 //*****************************************************************************
 
 #include <stdint.h>
+#include "systick.h"
+#include "system.h"
 
 /*
  * Symbols provided by linker command file.
@@ -49,7 +51,6 @@ extern void kernel_main(void);
  */
 void Reset_Handler(void);
 void IntDefaultHandler(void);
-void SystemInit(void);
 
 void NMI_Handler(void);
 void HardFault_Handler(void);
@@ -265,11 +266,7 @@ ISR_Handler const g_pfnVectors[] =
  * handled by the TI runtime through _c_int00 and .cinit.
  *
  * Since MELK OS uses a custom Reset_Handler and bypasses _c_int00,
- * manual .data/.bss initialization is temporarily disabled in the
- * CCS bring-up version.
- *
- * Full manual .data/.bss initialization will be enabled in the
- * GCC + Makefile version.
+ * .data and .bss are initialized manually before entering the kernel.
  */
 void Reset_Handler(void)
 {
@@ -301,19 +298,6 @@ void Reset_Handler(void)
     while (1)
     {
     }
-}
-
-void SystemInit(void)
-{
-    /*
-     * For Phase 1 we keep the default clock configuration.
-     *
-     * Later we will configure:
-     * - PLL
-     * - system clock
-     * - SysTick
-     * - peripheral clocks
-     */
 }
 
 void IntDefaultHandler(void)
@@ -365,5 +349,5 @@ void PendSV_Handler(void)
 
 void SysTick_Handler(void)
 {
-    IntDefaultHandler();
+    systick_tick();
 }
