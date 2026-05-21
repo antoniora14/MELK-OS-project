@@ -25,49 +25,65 @@ static uint32_t g_task_stacks[OS_MAX_TASKS][OS_TASK_STACK_SIZE_WORDS];
  */
 static uint32_t g_task_count = 0U;
 
-/*
- * Internal helper to initialize the initial stack frame.
- *
- * This prepares the stack in a Cortex-M-compatible layout,
- * but Phase 3 does not use it yet because there is no context switch.
- *
- * This will become useful when PendSV/context switching is implemented.
- */
+
+static void task_exit_trap(void)
+{
+    /*
+     * A task should never return.
+     *
+     * If execution reaches this function, it means a task returned from
+     * its entry function. For now, stop here.
+     */
+    while (1)
+    {
+    }
+}
+
+
 static uint32_t *task_prepare_initial_stack(uint32_t *stack_top,
                                             task_entry_t entry,
                                             void *argument)
 {
     uint32_t *sp;
-    sp = stack_top;
 
     /*
-     * Initial Cortex-M exception frame.
-     *
-     * This frame is not used yet in Phase 3 because there is no context
-     * switch. It is prepared now so the TCB is already compatible with the
-     * future PendSV implementation.
+     * Cortex-M expects the process stack to be 8-byte aligned on exception
+     * entry/return. Align the initial top of stack down to 8 bytes.
      */
-    *(--sp) = 0x01000000U;          /* xPSR: Thumb bit set */
-    *(--sp) = (uint32_t)entry;      /* PC */
-    *(--sp) = 0xFFFFFFFDU;          /* LR: exception return using PSP */
-    *(--sp) = 0x12121212U;          /* R12 */
-    *(--sp) = 0x03030303U;          /* R3 */
-    *(--sp) = 0x02020202U;          /* R2 */
-    *(--sp) = 0x01010101U;          /* R1 */
-    *(--sp) = (uint32_t)argument;   /* R0 */
+    sp = (uint32_t *)((uint32_t)stack_top & ~0x7U);
+
+    /*
+     * Initial Cortex-M hardware exception frame.
+     *
+     * This is the frame that the CPU automatically restores on exception
+     * return:
+     *
+     *   R0, R1, R2, R3, R12, LR, PC, xPSR
+     *
+     * The order below is reversed because the stack grows downward.
+     */
+    *(--sp) = 0x01000000U;              /* xPSR: Thumb bit set */
+    *(--sp) = (uint32_t)entry;          /* PC: task entry point */
+    *(--sp) = (uint32_t)task_exit_trap; /* LR: where task goes if it returns */
+    *(--sp) = 0x12121212U;              /* R12 */
+    *(--sp) = 0x03030303U;              /* R3 */
+    *(--sp) = 0x02020202U;              /* R2 */
+    *(--sp) = 0x01010101U;              /* R1 */
+    *(--sp) = (uint32_t)argument;       /* R0: task argument */
 
     /*
      * Software-saved registers.
-     * These will be restored manually by PendSV in a later phase.
+     *
+     * PendSV restores these manually before exception return.
      */
-    *(--sp) = 0x11111111U;          /* R11 */
-    *(--sp) = 0x10101010U;          /* R10 */
-    *(--sp) = 0x09090909U;          /* R9 */
-    *(--sp) = 0x08080808U;          /* R8 */
-    *(--sp) = 0x07070707U;          /* R7 */
-    *(--sp) = 0x06060606U;          /* R6 */
-    *(--sp) = 0x05050505U;          /* R5 */
-    *(--sp) = 0x04040404U;          /* R4 */
+    *(--sp) = 0x11111111U;              /* R11 */
+    *(--sp) = 0x10101010U;              /* R10 */
+    *(--sp) = 0x09090909U;              /* R9 */
+    *(--sp) = 0x08080808U;              /* R8 */
+    *(--sp) = 0x07070707U;              /* R7 */
+    *(--sp) = 0x06060606U;              /* R6 */
+    *(--sp) = 0x05050505U;              /* R5 */
+    *(--sp) = 0x04040404U;              /* R4 */
 
     return sp;
 }
@@ -185,3 +201,38 @@ int32_t task_set_state(uint32_t task_id, task_state_t state)
 
     return TASK_OK;
 }
+
+uint32_t *task_get_stack_pointer(uint32_t task_id)
+{
+    if (task_id >= g_task_count)
+    {
+        return 0;
+    }
+
+    return g_task_table[task_id].stack_pointer;
+}
+
+int32_t task_set_stack_pointer(uint32_t task_id, uint32_t *stack_pointer)
+{
+    if (task_id >= g_task_count)
+    {
+        return TASK_ERROR_INVALID_ID;
+    }
+
+    if (stack_pointer == 0)
+    {
+        return TASK_ERROR_INVALID_STACK;
+    }
+
+    if ((stack_pointer < g_task_table[task_id].stack_base) ||
+        (stack_pointer > g_task_table[task_id].stack_top))
+    {
+        return TASK_ERROR_INVALID_STACK;
+    }
+
+    g_task_table[task_id].stack_pointer = stack_pointer;
+
+    return TASK_OK;
+}
+
+

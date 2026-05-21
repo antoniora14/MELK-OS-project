@@ -5,8 +5,8 @@
  *      Author: anton
  */
 
-#ifndef DRIVERS_SYSTICK_H_
-#define DRIVERS_SYSTICK_H_
+#ifndef KERNEL_SYSTICK_H_
+#define KERNEL_SYSTICK_H_
 
 #include <stdint.h>
 
@@ -22,4 +22,4 @@ void systick_tick(void);
 uint32_t os_get_ticks(void);
 void os_delay_ms(uint32_t delay_ms);
 
-#endif /* DRIVERS_SYSTICK_H_ */
+#endif /* KERNEL_SYSTICK_H_ */

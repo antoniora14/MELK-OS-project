@@ -5,6 +5,7 @@
  *      Author: anton
  */
 
+#include "context_switch.h"
 #include "task_scheduler.h"
 #include "task.h"
 
@@ -12,6 +13,7 @@
 
 static uint32_t g_current_task_id = SCHEDULER_INVALID_TASK_ID;
 static scheduler_state_t g_scheduler_state = SCHEDULER_STATE_STOPPED;
+
 
 static uint8_t scheduler_is_valid_task(const task_control_block_t *task)
 {
@@ -189,13 +191,12 @@ void os_yield(void)
     }
 
     /*
-     * Phase 4:
-     * Only select the next logical task.
+     * Phase 5:
+     * Cooperative real context switch.
      *
-     * No CPU context is saved.
-     * No stack pointer is changed.
-     * No PendSV is triggered.
+     * The task voluntarily yields the CPU.
+     * PendSV will save the current task context and restore the next one.
      */
-    (void)os_schedule_next();
+    os_trigger_context_switch();
 }
 

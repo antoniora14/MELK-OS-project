@@ -9,6 +9,7 @@
 #include "system.h"
 #include "task.h"
 #include "task_scheduler.h"
+#include "context_switch.h"
 
 
 static void app_task_1(void *argument);
@@ -68,6 +69,8 @@ void kernel_main(void)
     kernel_print("\n");
 
     os_scheduler_init();
+    os_context_switch_init();
+
     if (os_scheduler_start() == SCHEDULER_OK)
     {
         kernel_print("[OK] Cooperative scheduler started\n");
@@ -75,41 +78,17 @@ void kernel_main(void)
     else
     {
         kernel_print("[ERROR] Cooperative scheduler failed to start\n");
+        while(1){}
     }
+
+    kernel_print("[OK] Starting first real task using PSP + SVC\n");
 
     os_delay_ms(500U);
 
+    os_start_first_task();
+
     while (1)
     {
-        const task_control_block_t *current_task;
-        current_task = os_get_current_task();
-
-        kernel_print(" Logical current task: ");
-
-        if (current_task != 0)
-        {
-            kernel_print_uint32(current_task->id);
-            kernel_print(" - ");
-            if (current_task->name != 0)
-            {
-                kernel_print(current_task->name);
-            }
-            else
-            {
-                kernel_print("unnamed");
-            }
-        }
-        else
-        {
-            kernel_print("none");
-        }
-
-        kernel_print("\n");
-
-        gpio_toggle_green_led();
-        os_delay_ms(1000U);
-
-        os_yield();
     }
 }
 
@@ -119,6 +98,16 @@ static void app_task_1(void *argument)
 
     while (1)
     {
+        kernel_print("[TASK 1] Running from real task context\n");
+        gpio_toggle_green_led();
+
+        os_delay_ms(500U);
+
+        /*
+         * Cooperative yield.
+         * This triggers PendSV.
+         */
+        os_yield();
     }
 }
 
@@ -128,5 +117,15 @@ static void app_task_2(void *argument)
 
     while (1)
     {
+        kernel_print("[TASK 2] Running from real task context\n");
+        gpio_toggle_red_led();
+
+        os_delay_ms(500U);
+
+        /*
+         * Cooperative yield.
+         * This triggers PendSV.
+         */
+        os_yield();
     }
 }

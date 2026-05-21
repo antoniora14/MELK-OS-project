@@ -17,13 +17,14 @@
  * It does not implement a scheduler, PendSV, or context switching yet.
  */
 
-#define OS_MAX_TASKS             8U
-#define OS_TASK_STACK_SIZE_WORDS 256U
+#define OS_MAX_TASKS                8U
+#define OS_TASK_STACK_SIZE_WORDS    256U
 
-#define TASK_OK                  0
-#define TASK_ERROR_NULL_ENTRY   -1
-#define TASK_ERROR_NO_SPACE     -2
-#define TASK_ERROR_INVALID_ID   -3
+#define TASK_OK                     0
+#define TASK_ERROR_NULL_ENTRY       -1
+#define TASK_ERROR_NO_SPACE         -2
+#define TASK_ERROR_INVALID_ID       -3
+#define TASK_ERROR_INVALID_STACK    -4
 
 typedef void (*task_entry_t)(void *argument);
 
@@ -48,6 +49,13 @@ typedef struct
 
     uint32_t *stack_base;
     uint32_t *stack_top;
+
+    /* Saved PSP value for this task.
+     *
+     * During context switch:
+     * - PendSV stores the current PSP here.
+     * - PendSV loads this value when restoring the task.
+    */
     uint32_t *stack_pointer;
     uint32_t stack_size_words;
 } task_control_block_t;
@@ -62,5 +70,7 @@ const task_control_block_t *task_get_table(void);
 const task_control_block_t *task_get_by_id(uint32_t task_id);
 void idle_task(void *argument);
 
+uint32_t *task_get_stack_pointer(uint32_t task_id);
+int32_t   task_set_stack_pointer(uint32_t task_id, uint32_t *stack_pointer);
 
 #endif /* KERNEL_TASK_H_ */

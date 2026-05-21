@@ -47,8 +47,26 @@
 #error "SYSTEM_CLOCK_HZ is too low for the TM4C123 PLL divider."
 #endif
 
+#define SYSCTL_FLASHCFG_R        (*((volatile uint32_t *)0x400FEFC8))
+
+#define SYSCTL_FLASHCFG_FWS_M    0x0000000FU
+
+#if (SYSTEM_CLOCK_HZ > 50000000U)
+#define SYSTEM_FLASH_WAIT_STATES 2U
+#elif (SYSTEM_CLOCK_HZ > 25000000U)
+#define SYSTEM_FLASH_WAIT_STATES 1U
+#else
+#define SYSTEM_FLASH_WAIT_STATES 0U
+#endif
+
+#define SYSTEM_PLL_LOCK_TIMEOUT  1000000U
+
+
+
 void SystemInit(void)
 {
+    uint32_t sysinit_timeout;
+
     SYSCTL_RCC2_R |= SYSCTL_RCC2_USERCC2;
     SYSCTL_RCC2_R |= SYSCTL_RCC2_BYPASS2;
 
@@ -62,11 +80,33 @@ void SystemInit(void)
     SYSCTL_RCC2_R &= ~SYSCTL_RCC2_SYSDIV2_M;
     SYSCTL_RCC2_R |= (SYSTEM_SYSDIV2_VALUE << 22);
 
-    while ((SYSCTL_RIS_R & SYSCTL_RIS_PLLLRIS) == 0U)
+    /*
+    * Configure Flash wait states before switching to the high-speed PLL clock.
+    * Required for reliable Flash execution at high system clock frequencies.
+    */
+    SYSCTL_FLASHCFG_R =
+            (SYSCTL_FLASHCFG_R & ~SYSCTL_FLASHCFG_FWS_M) |
+            SYSTEM_FLASH_WAIT_STATES;
+
+    sysinit_timeout = SYSTEM_PLL_LOCK_TIMEOUT;
+
+    while (((SYSCTL_RIS_R & SYSCTL_RIS_PLLLRIS) == 0U) && (sysinit_timeout > 0U))
     {
+        sysinit_timeout--;
     }
 
-    SYSCTL_RCC2_R &= ~SYSCTL_RCC2_BYPASS2;
+    if (sysinit_timeout > 0U)
+    {
+        SYSCTL_RCC2_R &= ~SYSCTL_RCC2_BYPASS2;
+    }
+    else
+    {
+        /*
+         * PLL did not lock.
+         * Keep running from bypassed oscillator.
+         * Later we can expose this as a system clock error.
+         */
+    }
 }
 
 uint32_t system_get_clock_hz(void)

@@ -57,10 +57,11 @@ void HardFault_Handler(void);
 void MemManage_Handler(void);
 void BusFault_Handler(void);
 void UsageFault_Handler(void);
-void SVC_Handler(void);
 void DebugMon_Handler(void);
-void PendSV_Handler(void);
 void SysTick_Handler(void);
+
+extern void SVC_Handler(void);
+extern void PendSV_Handler(void);
 
 /*
  * ISR function pointer type.
@@ -332,17 +333,7 @@ void UsageFault_Handler(void)
     IntDefaultHandler();
 }
 
-void SVC_Handler(void)
-{
-    IntDefaultHandler();
-}
-
 void DebugMon_Handler(void)
-{
-    IntDefaultHandler();
-}
-
-void PendSV_Handler(void)
 {
     IntDefaultHandler();
 }
