@@ -161,7 +161,6 @@ MELK_OS/
 
 ```text
 boot/
-system/
 ```
 
 Contains the lowest-level boot code executed after reset:

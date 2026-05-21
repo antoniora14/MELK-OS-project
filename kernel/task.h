@@ -1,0 +1,64 @@
+/*
+ * task.h
+ *
+ *  Created on: 17 may. 2026
+ *      Author: anton
+ */
+
+#ifndef KERNEL_TASK_H_
+#define KERNEL_TASK_H_
+
+#include <stdint.h>
+
+/*
+ * MELK OS - Phase 3: Task Management
+ *
+ * This module only creates and stores task metadata.
+ * It does not implement a scheduler, PendSV, or context switching yet.
+ */
+
+#define OS_MAX_TASKS             8U
+#define OS_TASK_STACK_SIZE_WORDS 256U
+
+#define TASK_OK                  0
+#define TASK_ERROR_NULL_ENTRY   -1
+#define TASK_ERROR_NO_SPACE     -2
+
+typedef void (*task_entry_t)(void *argument);
+
+typedef enum
+{
+    TASK_STATE_UNUSED = 0,
+    TASK_STATE_READY,
+    TASK_STATE_RUNNING,
+    TASK_STATE_BLOCKED,
+    TASK_STATE_SLEEPING,
+    TASK_STATE_SUSPENDED
+} task_state_t;
+
+typedef struct
+{
+    uint32_t id;
+    const char *name;
+    task_entry_t entry;
+    void *argument;
+
+    task_state_t state;
+
+    uint32_t *stack_base;
+    uint32_t *stack_top;
+    uint32_t *stack_pointer;
+    uint32_t stack_size_words;
+} task_control_block_t;
+
+
+
+void task_system_init(void);
+int task_create(const char *name, task_entry_t entry, void *argument);
+uint32_t task_get_count(void);
+const task_control_block_t *task_get_table(void);
+const task_control_block_t *task_get_by_id(uint32_t task_id);
+void idle_task(void *argument);
+
+
+#endif /* KERNEL_TASK_H_ */
