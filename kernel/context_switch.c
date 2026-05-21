@@ -21,6 +21,9 @@
 #define SCB_SHPR3_PENDSV_MASK  (0xFFU << 16)
 #define SCB_SHPR3_PENDSV_LOW   (0xFFU << 16)
 
+
+static volatile uint32_t g_context_switch_started = 0U;
+
 /*
  * EXC_RETURN value:
  *
@@ -43,9 +46,9 @@ static void os_instruction_sync_barrier(void)
 
 void os_context_switch_init(void)
 {
-    /*
-     * Set PendSV to the lowest priority.
-     *
+    g_context_switch_started = 0U;
+
+    /* Set PendSV to the lowest priority.
      * This is important because PendSV should only run when no higher
      * priority interrupt is active.
      */
@@ -55,9 +58,7 @@ void os_context_switch_init(void)
 
 void os_trigger_context_switch(void)
 {
-    /*
-     * Pend PendSV.
-     *
+    /* Pend PendSV.
      * The CPU will enter PendSV after the current instruction stream
      * reaches a valid exception boundary.
      */
@@ -142,3 +143,12 @@ void os_start_first_task(void)
     }
 }
 
+uint32_t os_context_switch_is_started(void)
+{
+    return g_context_switch_started;
+}
+
+void os_context_switch_mark_started(void)
+{
+    g_context_switch_started = 1U;
+}

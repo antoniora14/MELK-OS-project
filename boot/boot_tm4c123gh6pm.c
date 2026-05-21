@@ -60,6 +60,7 @@ void UsageFault_Handler(void);
 void DebugMon_Handler(void);
 void SysTick_Handler(void);
 
+extern void systick_handler(void);
 extern void SVC_Handler(void);
 extern void PendSV_Handler(void);
 
@@ -118,7 +119,7 @@ ISR_Handler const g_pfnVectors[] =
     DebugMon_Handler,                       // Debug monitor handler
     0,                                      // Reserved
     PendSV_Handler,                         // The PendSV handler
-    SysTick_Handler,                        // The SysTick handler
+    systick_handler,                        // The SysTick handler
     IntDefaultHandler,                      // GPIO Port A
     IntDefaultHandler,                      // GPIO Port B
     IntDefaultHandler,                      // GPIO Port C
@@ -338,7 +339,7 @@ void DebugMon_Handler(void)
     IntDefaultHandler();
 }
 
-void SysTick_Handler(void)
+/*void SysTick_Handler(void)
 {
     systick_tick();
-}
+}*/

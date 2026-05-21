@@ -94,3 +94,18 @@ void gpio_toggle_green_led(void)
 {
     GPIO_PORTF_DATA_R ^= GREEN_LED;
 }
+
+void gpio_toggle_blue_led(void)
+{
+    GPIO_PORTF_DATA_R ^= BLUE_LED;
+}
+
+void gpio_blue_led_on(void)
+{
+    GPIO_PORTF_DATA_R |= BLUE_LED;
+}
+
+void gpio_blue_led_off(void)
+{
+    GPIO_PORTF_DATA_R &= ~BLUE_LED;
+}

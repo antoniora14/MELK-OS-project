@@ -14,6 +14,7 @@
 
 static void app_task_1(void *argument);
 static void app_task_2(void *argument);
+static void app_task_3(void *argument);
 
 
 void kernel_main(void)
@@ -21,6 +22,7 @@ void kernel_main(void)
     uint32_t systick_status;
     int32_t task1_id;
     int32_t task2_id;
+    int32_t task3_id;
 
     gpio_init();
     uart0_init();
@@ -53,6 +55,7 @@ void kernel_main(void)
 
     task1_id = task_create("app_task_1", app_task_1, 0);
     task2_id = task_create("app_task_2", app_task_2, 0);
+    task3_id = task_create("app_task_3", app_task_3, 0);
 
     kernel_print("[OK] Task system initialized\n");
 
@@ -68,12 +71,16 @@ void kernel_main(void)
     kernel_print_uint32((uint32_t)task2_id);
     kernel_print("\n");
 
+    kernel_print(" app_task_3 id: ");
+    kernel_print_uint32((uint32_t)task3_id);
+    kernel_print("\n");
+
     os_scheduler_init();
     os_context_switch_init();
 
     if (os_scheduler_start() == SCHEDULER_OK)
     {
-        kernel_print("[OK] Cooperative scheduler started\n");
+        kernel_print("[OK] Preemptive scheduler initialized\n");
     }
     else
     {
@@ -81,12 +88,13 @@ void kernel_main(void)
         while(1){}
     }
 
-    kernel_print("[OK] Starting first real task using PSP + SVC\n");
+    os_scheduler_enable_preemption();
 
-    os_delay_ms(500U);
+    kernel_print("[OK] Starting first real task using PSP\n");
 
     os_start_first_task();
 
+    // os_start_first_task() should never return.
     while (1)
     {
     }
@@ -98,16 +106,10 @@ static void app_task_1(void *argument)
 
     while (1)
     {
-        kernel_print("[TASK 1] Running from real task context\n");
+        kernel_print("[TASK 1] Running..\n");
         gpio_toggle_green_led();
 
         os_delay_ms(500U);
-
-        /*
-         * Cooperative yield.
-         * This triggers PendSV.
-         */
-        os_yield();
     }
 }
 
@@ -117,15 +119,22 @@ static void app_task_2(void *argument)
 
     while (1)
     {
-        kernel_print("[TASK 2] Running from real task context\n");
+        kernel_print("[TASK 2] Running..\n");
         gpio_toggle_red_led();
 
-        os_delay_ms(500U);
+        os_delay_ms(1000U);
+    }
+}
 
-        /*
-         * Cooperative yield.
-         * This triggers PendSV.
-         */
-        os_yield();
+static void app_task_3(void *argument)
+{
+    (void)argument;
+
+    while (1)
+    {
+        kernel_print("[TASK 3] Running..\n");
+        gpio_toggle_blue_led();
+
+        os_delay_ms(1500U);
     }
 }

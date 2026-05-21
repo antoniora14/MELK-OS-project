@@ -22,4 +22,6 @@ void systick_tick(void);
 uint32_t os_get_ticks(void);
 void os_delay_ms(uint32_t delay_ms);
 
+void systick_handler(void);
+
 #endif /* KERNEL_SYSTICK_H_ */

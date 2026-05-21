@@ -6,6 +6,7 @@
     .ref os_get_current_task_stack_pointer_internal
     .ref os_save_current_task_stack_pointer
     .ref os_schedule_next_stack_pointer
+    .ref os_context_switch_mark_started
 
 ; =============================================================================
 ; SVC_Handler
@@ -36,6 +37,8 @@ SVC_Handler:
         MOVS    R0, #2
         MSR     CONTROL, R0
         ISB
+
+        BL      os_context_switch_mark_started
 
         MOVW    LR, #0xFFFD
         MOVT    LR, #0xFFFF

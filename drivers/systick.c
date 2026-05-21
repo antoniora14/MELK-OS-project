@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "systick.h"
+#include "task_scheduler.h"
 
 #define SYSTICK_CTRL_R         (*((volatile uint32_t *)0xE000E010))
 #define SYSTICK_RELOAD_R       (*((volatile uint32_t *)0xE000E014))
@@ -94,5 +95,11 @@ void os_delay_ms(uint32_t delay_ms)
     while ((uint32_t)(os_get_ticks() - start_tick) < delay_ms)
     {
     }
+}
+
+void systick_handler(void)
+{
+    systick_tick();
+    os_scheduler_tick();
 }
 

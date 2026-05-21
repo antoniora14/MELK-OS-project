@@ -13,6 +13,8 @@
 
 static uint32_t g_current_task_id = SCHEDULER_INVALID_TASK_ID;
 static scheduler_state_t g_scheduler_state = SCHEDULER_STATE_STOPPED;
+static volatile uint32_t g_preemption_enabled = 0U;
+static volatile uint32_t g_scheduler_tick_count = 0U;
 
 
 static uint8_t scheduler_is_valid_task(const task_control_block_t *task)
@@ -65,6 +67,8 @@ void os_scheduler_init(void)
 {
     g_current_task_id = SCHEDULER_IDLE_TASK_ID;
     g_scheduler_state = SCHEDULER_STATE_INITIALIZED;
+    g_preemption_enabled = 0U;
+    g_scheduler_tick_count = 0U;
 }
 
 int32_t os_scheduler_start(void)
@@ -190,13 +194,71 @@ void os_yield(void)
         return;
     }
 
-    /*
-     * Phase 5:
-     * Cooperative real context switch.
-     *
-     * The task voluntarily yields the CPU.
-     * PendSV will save the current task context and restore the next one.
+    if (os_context_switch_is_started() == 0U)
+    {
+        return;
+    }
+
+    /* Manual cooperative yield.
+     * Even in preemptive mode, this remains useful when a task wants to
+     * voluntarily give up the CPU before its time slice expires.
      */
     os_trigger_context_switch();
+}
+
+void os_scheduler_enable_preemption(void)
+{
+    g_scheduler_tick_count = 0U;
+    g_preemption_enabled = 1U;
+}
+
+void os_scheduler_disable_preemption(void)
+{
+    g_preemption_enabled = 0U;
+    g_scheduler_tick_count = 0U;
+}
+
+uint32_t os_scheduler_is_preemption_enabled(void)
+{
+    return g_preemption_enabled;
+}
+
+void os_scheduler_tick(void)
+{
+    if (g_scheduler_state != SCHEDULER_STATE_RUNNING)
+    {
+        return;
+    }
+
+    if (g_preemption_enabled == 0U)
+    {
+        return;
+    }
+
+    /*
+     * Do not trigger PendSV until the first task has started using PSP.
+     *
+     * This prevents SysTick from attempting a context switch while the
+     * system is still executing kernel_main() using MSP.
+     */
+    if (os_context_switch_is_started() == 0U)
+    {
+        return;
+    }
+
+    g_scheduler_tick_count++;
+
+    if (g_scheduler_tick_count >= SCHEDULER_TIME_SLICE_TICKS)
+    {
+        g_scheduler_tick_count = 0U;
+
+        /*
+         * Request context switch.
+         *
+         * SysTick does not perform the context switch directly.
+         * It only pends PendSV, which runs at the lowest priority.
+         */
+        os_trigger_context_switch();
+    }
 }
 
