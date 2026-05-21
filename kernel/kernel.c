@@ -8,9 +8,12 @@
 #include "systick.h"
 #include "system.h"
 #include "task.h"
+#include "task_scheduler.h"
+
 
 static void app_task_1(void *argument);
 static void app_task_2(void *argument);
+
 
 void kernel_main(void)
 {
@@ -64,12 +67,49 @@ void kernel_main(void)
     kernel_print_uint32((uint32_t)task2_id);
     kernel_print("\n");
 
+    os_scheduler_init();
+    if (os_scheduler_start() == SCHEDULER_OK)
+    {
+        kernel_print("[OK] Cooperative scheduler started\n");
+    }
+    else
+    {
+        kernel_print("[ERROR] Cooperative scheduler failed to start\n");
+    }
+
     os_delay_ms(500U);
 
     while (1)
     {
+        const task_control_block_t *current_task;
+        current_task = os_get_current_task();
+
+        kernel_print(" Logical current task: ");
+
+        if (current_task != 0)
+        {
+            kernel_print_uint32(current_task->id);
+            kernel_print(" - ");
+            if (current_task->name != 0)
+            {
+                kernel_print(current_task->name);
+            }
+            else
+            {
+                kernel_print("unnamed");
+            }
+        }
+        else
+        {
+            kernel_print("none");
+        }
+
+        kernel_print("\n");
+
         gpio_toggle_green_led();
         os_delay_ms(1000U);
+
+        os_yield();
     }
 }
 

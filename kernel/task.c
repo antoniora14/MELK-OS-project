@@ -173,3 +173,15 @@ void idle_task(void *argument)
          */
     }
 }
+
+int32_t task_set_state(uint32_t task_id, task_state_t state)
+{
+    if (task_id >= g_task_count)
+    {
+        return TASK_ERROR_INVALID_ID;
+    }
+
+    g_task_table[task_id].state = state;
+
+    return TASK_OK;
+}

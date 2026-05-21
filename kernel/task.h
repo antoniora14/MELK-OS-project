@@ -23,6 +23,7 @@
 #define TASK_OK                  0
 #define TASK_ERROR_NULL_ENTRY   -1
 #define TASK_ERROR_NO_SPACE     -2
+#define TASK_ERROR_INVALID_ID   -3
 
 typedef void (*task_entry_t)(void *argument);
 
@@ -54,7 +55,8 @@ typedef struct
 
 
 void task_system_init(void);
-int task_create(const char *name, task_entry_t entry, void *argument);
+int32_t task_create(const char *name, task_entry_t entry, void *argument);
+int32_t task_set_state(uint32_t task_id, task_state_t state);
 uint32_t task_get_count(void);
 const task_control_block_t *task_get_table(void);
 const task_control_block_t *task_get_by_id(uint32_t task_id);
