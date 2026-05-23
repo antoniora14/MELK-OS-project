@@ -6,16 +6,16 @@
  */
 
 #include "context_switch.h"
+#include "systick.h"
 #include "task_scheduler.h"
 #include "task.h"
 
-#define SCHEDULER_IDLE_TASK_ID    0U
+#define SCHEDULER_IDLE_TASK_ID    TASK_IDLE_TASK_ID
 
 static uint32_t g_current_task_id = SCHEDULER_INVALID_TASK_ID;
 static scheduler_state_t g_scheduler_state = SCHEDULER_STATE_STOPPED;
 static volatile uint32_t g_preemption_enabled = 0U;
 static volatile uint32_t g_scheduler_tick_count = 0U;
-
 
 static uint8_t scheduler_is_valid_task(const task_control_block_t *task)
 {
@@ -132,6 +132,9 @@ const task_control_block_t *os_schedule_next(void)
     /*
      * If the current task was logically RUNNING,
      * return it to READY before selecting the next one.
+     *
+     * If the task was changed to SLEEPING/BLOCKED before PendSV,
+     * do not overwrite that state here.
      */
     current_task = os_get_current_task();
 
@@ -206,6 +209,58 @@ void os_yield(void)
     os_trigger_context_switch();
 }
 
+void os_sleep(uint32_t milliseconds)
+{
+    uint32_t current_task_id;
+    uint32_t wakeup_tick;
+    uint32_t irq_state;
+    int32_t task_status;
+
+    if (milliseconds == 0U)
+    {
+        os_yield();
+        return;
+    }
+
+    /*
+     * Before the scheduler starts, sleep cannot block the current task.
+     * Keep compatibility with early boot code by falling back to busy-wait.
+     */
+    if ((g_scheduler_state != SCHEDULER_STATE_RUNNING) ||
+        (os_context_switch_is_started() == 0U))
+    {
+        os_delay_ms(milliseconds);
+        return;
+    }
+
+    current_task_id = os_get_current_task_id();
+
+    if ((current_task_id == SCHEDULER_INVALID_TASK_ID) ||
+        (current_task_id == SCHEDULER_IDLE_TASK_ID))
+    {
+        return;
+    }
+
+    wakeup_tick = os_get_ticks() + milliseconds;
+
+    /*
+     * Make state change and PendSV request atomic with respect to SysTick.
+     * This prevents the current task from being scheduled away between
+     * becoming SLEEPING and requesting the context switch itself.
+     */
+    irq_state = os_irq_save();
+
+    task_status = task_sleep_until(current_task_id, wakeup_tick);
+
+    if (task_status == TASK_OK)
+    {
+        g_scheduler_tick_count = 0U;
+        os_trigger_context_switch();
+    }
+
+    os_irq_restore(irq_state);
+}
+
 void os_scheduler_enable_preemption(void)
 {
     g_scheduler_tick_count = 0U;
@@ -225,23 +280,38 @@ uint32_t os_scheduler_is_preemption_enabled(void)
 
 void os_scheduler_tick(void)
 {
+    uint32_t woken_task_count;
+
     if (g_scheduler_state != SCHEDULER_STATE_RUNNING)
     {
         return;
     }
 
-    if (g_preemption_enabled == 0U)
+    woken_task_count = task_wake_expired_sleeping_tasks(os_get_ticks());
+
+    /*
+     * Do not trigger PendSV until the first task has started using PSP.
+     * This prevents SysTick from attempting a context switch while the
+     * system is still executing kernel_main() using MSP.
+     */
+    if (os_context_switch_is_started() == 0U)
     {
         return;
     }
 
     /*
-     * Do not trigger PendSV until the first task has started using PSP.
-     *
-     * This prevents SysTick from attempting a context switch while the
-     * system is still executing kernel_main() using MSP.
+     * If the CPU is running idle and a task wakes up, switch immediately.
+     * This avoids waiting for the next full time slice while idle is running.
      */
-    if (os_context_switch_is_started() == 0U)
+    if ((woken_task_count > 0U) &&
+        (g_current_task_id == SCHEDULER_IDLE_TASK_ID))
+    {
+        g_scheduler_tick_count = 0U;
+        os_trigger_context_switch();
+        return;
+    }
+
+    if (g_preemption_enabled == 0U)
     {
         return;
     }
@@ -261,4 +331,3 @@ void os_scheduler_tick(void)
         os_trigger_context_switch();
     }
 }
-

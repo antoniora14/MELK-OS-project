@@ -25,7 +25,6 @@ static uint32_t g_task_stacks[OS_MAX_TASKS][OS_TASK_STACK_SIZE_WORDS];
  */
 static uint32_t g_task_count = 0U;
 
-
 static void task_exit_trap(void)
 {
     /*
@@ -39,6 +38,20 @@ static void task_exit_trap(void)
     }
 }
 
+static uint32_t task_has_wakeup_tick_expired(uint32_t current_tick,
+                                             uint32_t wakeup_tick)
+{
+    /*
+     * Wrap-safe tick comparison.
+     * This works as long as sleep intervals are shorter than 2^31 ticks.
+     */
+    if ((uint32_t)(current_tick - wakeup_tick) < 0x80000000U)
+    {
+        return 1U;
+    }
+
+    return 0U;
+}
 
 static uint32_t *task_prepare_initial_stack(uint32_t *stack_top,
                                             task_entry_t entry,
@@ -101,6 +114,7 @@ void task_system_init(void)
         g_task_table[i].entry = 0;
         g_task_table[i].argument = 0;
         g_task_table[i].state = TASK_STATE_UNUSED;
+        g_task_table[i].wakeup_tick = 0U;
         g_task_table[i].stack_base = 0;
         g_task_table[i].stack_top = 0;
         g_task_table[i].stack_pointer = 0;
@@ -109,7 +123,7 @@ void task_system_init(void)
 
     /*
      * Reserve task 0 for the idle task.
-     * The scheduler will use this task later when no other task is READY.
+     * The scheduler will use this task when no other task is READY.
      */
     (void)task_create("idle", idle_task, 0);
 }
@@ -142,6 +156,7 @@ int32_t task_create(const char *name,
     g_task_table[task_id].entry = entry;
     g_task_table[task_id].argument = argument;
     g_task_table[task_id].state = TASK_STATE_READY;
+    g_task_table[task_id].wakeup_tick = 0U;
     g_task_table[task_id].stack_base = stack_base;
     g_task_table[task_id].stack_top = stack_top;
     g_task_table[task_id].stack_pointer =
@@ -180,11 +195,8 @@ void idle_task(void *argument)
     while (1)
     {
         /*
-         * Phase 3:
-         * The idle task exists only as a registered task.
-         * It is not executed by a scheduler yet.
-         *
-         * Later this can use WFI:
+         * For now the idle task keeps the CPU in a safe loop.
+         * Later this can use WFI to reduce power consumption:
          * __asm(" WFI");
          */
     }
@@ -235,4 +247,80 @@ int32_t task_set_stack_pointer(uint32_t task_id, uint32_t *stack_pointer)
     return TASK_OK;
 }
 
+int32_t task_sleep_until(uint32_t task_id, uint32_t wakeup_tick)
+{
+    task_control_block_t *task;
 
+    if (task_id >= g_task_count)
+    {
+        return TASK_ERROR_INVALID_ID;
+    }
+
+    if (task_id == TASK_IDLE_TASK_ID)
+    {
+        return TASK_ERROR_INVALID_STATE;
+    }
+
+    task = &g_task_table[task_id];
+
+    if ((task->state != TASK_STATE_RUNNING) &&
+        (task->state != TASK_STATE_READY))
+    {
+        return TASK_ERROR_INVALID_STATE;
+    }
+
+    /*
+     * Store the wakeup tick before changing the state.
+     * This makes SysTick observe a complete sleeping-task configuration.
+     */
+    task->wakeup_tick = wakeup_tick;
+    task->state = TASK_STATE_SLEEPING;
+
+    return TASK_OK;
+}
+
+int32_t task_wake(uint32_t task_id)
+{
+    task_control_block_t *task;
+
+    if (task_id >= g_task_count)
+    {
+        return TASK_ERROR_INVALID_ID;
+    }
+
+    task = &g_task_table[task_id];
+
+    if (task->state != TASK_STATE_SLEEPING)
+    {
+        return TASK_ERROR_INVALID_STATE;
+    }
+
+    task->wakeup_tick = 0U;
+    task->state = TASK_STATE_READY;
+
+    return TASK_OK;
+}
+
+uint32_t task_wake_expired_sleeping_tasks(uint32_t current_tick)
+{
+    uint32_t i;
+    uint32_t woken_tasks;
+
+    woken_tasks = 0U;
+
+    for (i = 0U; i < g_task_count; i++)
+    {
+        if (g_task_table[i].state == TASK_STATE_SLEEPING)
+        {
+            if (task_has_wakeup_tick_expired(current_tick,
+                                             g_task_table[i].wakeup_tick) != 0U)
+            {
+                g_task_table[i].wakeup_tick = 0U;
+                g_task_table[i].state = TASK_STATE_READY;
+                woken_tasks++;
+            }
+        }
+    }
+
+    return woken_tasks;
+}

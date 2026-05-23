@@ -2,6 +2,8 @@
 
     .global SVC_Handler
     .global PendSV_Handler
+    .global os_irq_save
+    .global os_irq_restore
 
     .ref os_get_current_task_stack_pointer_internal
     .ref os_save_current_task_stack_pointer
@@ -111,4 +113,39 @@ pendsv_select_next:
 pendsv_fault_loop:
         B       pendsv_fault_loop
 
+    .endasmfunc
+
+
+; =============================================================================
+; os_irq_save / os_irq_restore
+;
+; Small critical-section primitives used by kernel services.
+;
+; os_irq_save():
+;   - Returns current PRIMASK in R0
+;   - Disables maskable interrupts
+;
+; os_irq_restore(primask):
+;   - Restores PRIMASK from R0
+; =============================================================================
+
+    .sect ".text:os_irq_save"
+    .align 4
+    .thumbfunc os_irq_save
+
+os_irq_save:
+    .asmfunc
+        MRS     R0, PRIMASK
+        CPSID   I
+        BX      LR
+    .endasmfunc
+
+    .sect ".text:os_irq_restore"
+    .align 4
+    .thumbfunc os_irq_restore
+
+os_irq_restore:
+    .asmfunc
+        MSR     PRIMASK, R0
+        BX      LR
     .endasmfunc

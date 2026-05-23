@@ -38,5 +38,11 @@ uint32_t os_context_switch_is_started(void);
  */
 void os_context_switch_mark_started(void);
 
+/* Saves PRIMASK and disables interrupts. */
+uint32_t os_irq_save(void);
+
+/* Restores PRIMASK to the value returned by os_irq_save(). */
+void os_irq_restore(uint32_t primask);
+
 
 #endif /* KERNEL_CONTEXT_SWITCH_H_ */
