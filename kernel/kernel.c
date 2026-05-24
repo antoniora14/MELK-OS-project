@@ -10,10 +10,18 @@
 #include "task.h"
 #include "task_scheduler.h"
 #include "context_switch.h"
+#include "mutex.h"
 
-//#define _KERNEL_DEBUG_
+/*
+ * Optional validation modes.
+ * Enable only the validation you are currently executing.
+ */
+//#define MELK_OS_SLEEP_DEBUG
+#define MELK_OS_MUTEX_DEBUG
 
-#ifdef _KERNEL_DEBUG_
+static os_mutex_t g_console_mutex;
+
+#ifdef MELK_OS_SLEEP_DEBUG
 typedef struct
 {
     volatile uint32_t sample_count;
@@ -44,16 +52,29 @@ static void kernel_record_sleep_measurement(
     uint32_t elapsed_ticks);
 #endif
 
-
+#ifdef MELK_OS_MUTEX_DEBUG
+volatile uint32_t g_mutex_critical_depth = 0U;
+volatile uint32_t g_mutex_violation_count = 0U;
+volatile uint32_t g_mutex_protected_print_count = 0U;
+volatile uint32_t g_mutex_error_count = 0U;
+#endif
 
 static void app_task_1(void *argument);
 static void app_task_2(void *argument);
 static void app_task_3(void *argument);
+static void kernel_write_task_message(const char *task_name);
 
 
+
+/***********************************************************
+ *
+ *
+ *
+ **********************************************************/
 void kernel_main(void)
 {
     uint32_t systick_status;
+    int32_t mutex_status;
     int32_t task1_id;
     int32_t task2_id;
     int32_t task3_id;
@@ -87,6 +108,20 @@ void kernel_main(void)
 
     task_system_init();
 
+    mutex_status = os_mutex_init(&g_console_mutex);
+
+    if (mutex_status == OS_MUTEX_OK)
+    {
+        kernel_print("[OK] Console mutex initialized\n");
+    }
+    else
+    {
+        kernel_print("[ERROR] Console mutex initialization failed\n");
+        while (1)
+        {
+        }
+    }
+
     task1_id = task_create("app_task_1", app_task_1, 0);
     task2_id = task_create("app_task_2", app_task_2, 0);
     task3_id = task_create("app_task_3", app_task_3, 0);
@@ -118,8 +153,10 @@ void kernel_main(void)
     }
     else
     {
-        kernel_print("[ERROR] Cooperative scheduler failed to start\n");
-        while(1){}
+        kernel_print("[ERROR] Preemptive scheduler failed to start\n");
+        while (1)
+        {
+        }
     }
 
     os_scheduler_enable_preemption();
@@ -128,16 +165,21 @@ void kernel_main(void)
 
     os_start_first_task();
 
-    // os_start_first_task() should never return.
+    /* os_start_first_task() should never return. */
     while (1)
     {
     }
 }
 
-#ifdef _KERNEL_DEBUG_
+
+/***********************************************************
+ *
+ *
+ **********************************************************/
+#ifdef MELK_OS_SLEEP_DEBUG
 static void kernel_record_sleep_measurement(
-        volatile sleep_test_statistics_t *statistics,
-        uint32_t elapsed_ticks)
+    volatile sleep_test_statistics_t *statistics,
+    uint32_t elapsed_ticks)
 {
     statistics->sample_count++;
     statistics->last_elapsed_ticks = elapsed_ticks;
@@ -159,9 +201,63 @@ static void kernel_record_sleep_measurement(
 }
 #endif
 
+
+/***********************************************************
+ *
+ **********************************************************/
+static void kernel_write_task_message(const char *task_name)
+{
+    int32_t mutex_status;
+
+    mutex_status = os_mutex_lock(&g_console_mutex);
+
+    if (mutex_status != OS_MUTEX_OK)
+    {
+#ifdef MELK_OS_MUTEX_DEBUG
+        g_mutex_error_count++;
+#endif
+        return;
+    }
+
+#ifdef MELK_OS_MUTEX_DEBUG
+    g_mutex_critical_depth++;
+
+    if (g_mutex_critical_depth > 1U)
+    {
+        g_mutex_violation_count++;
+    }
+#endif
+
+    kernel_print("[");
+    kernel_print(task_name);
+    kernel_print("] tick=");
+    kernel_print_uint32(os_get_ticks());
+    kernel_print(" protected UART output\n");
+
+#ifdef MELK_OS_MUTEX_DEBUG
+    g_mutex_protected_print_count++;
+    g_mutex_critical_depth--;
+#endif
+
+    mutex_status = os_mutex_unlock(&g_console_mutex);
+
+#ifdef MELK_OS_MUTEX_DEBUG
+    if (mutex_status != OS_MUTEX_OK)
+    {
+        g_mutex_error_count++;
+    }
+#else
+    (void)mutex_status;
+#endif
+}
+
+/***********************************************************
+ *
+ *
+ **********************************************************/
 static void app_task_1(void *argument)
 {
-#ifdef _KERNEL_DEBUG_
+#ifdef MELK_OS_SLEEP_DEBUG
     uint32_t start_tick;
     uint32_t end_tick;
     uint32_t elapsed_ticks;
@@ -171,7 +267,7 @@ static void app_task_1(void *argument)
 
     while (1)
     {
-#ifdef _KERNEL_DEBUG_
+#ifdef MELK_OS_SLEEP_DEBUG
         start_tick = os_get_ticks();
 
         os_sleep(500U);
@@ -180,11 +276,11 @@ static void app_task_1(void *argument)
         elapsed_ticks = (uint32_t)(end_tick - start_tick);
 
         kernel_record_sleep_measurement(&g_task_1_sleep_stats,
-                                                elapsed_ticks);
+                                        elapsed_ticks);
 
         gpio_toggle_green_led();
 #else
-        kernel_print("[TASK 1] Running..\n");
+        kernel_write_task_message("TASK 1");
         gpio_toggle_green_led();
 
         os_sleep(500U);
@@ -192,9 +288,13 @@ static void app_task_1(void *argument)
     }
 }
 
+/***********************************************************
+ *
+ *
+ **********************************************************/
 static void app_task_2(void *argument)
 {
-#ifdef _KERNEL_DEBUG_
+#ifdef MELK_OS_SLEEP_DEBUG
     uint32_t start_tick;
     uint32_t end_tick;
     uint32_t elapsed_ticks;
@@ -204,7 +304,7 @@ static void app_task_2(void *argument)
 
     while (1)
     {
-#ifdef _KERNEL_DEBUG_
+#ifdef MELK_OS_SLEEP_DEBUG
         start_tick = os_get_ticks();
 
         os_sleep(1000U);
@@ -213,11 +313,11 @@ static void app_task_2(void *argument)
         elapsed_ticks = (uint32_t)(end_tick - start_tick);
 
         kernel_record_sleep_measurement(&g_task_2_sleep_stats,
-                                                elapsed_ticks);
+                                        elapsed_ticks);
 
         gpio_toggle_red_led();
 #else
-        kernel_print("[TASK 2] Running..\n");
+        kernel_write_task_message("TASK 2");
         gpio_toggle_red_led();
 
         os_sleep(1000U);
@@ -225,9 +325,13 @@ static void app_task_2(void *argument)
     }
 }
 
+/***********************************************************
+ *
+ *
+ **********************************************************/
 static void app_task_3(void *argument)
 {
-#ifdef _KERNEL_DEBUG_
+#ifdef MELK_OS_SLEEP_DEBUG
     uint32_t start_tick;
     uint32_t end_tick;
     uint32_t elapsed_ticks;
@@ -237,7 +341,7 @@ static void app_task_3(void *argument)
 
     while (1)
     {
-#ifdef _KERNEL_DEBUG_
+#ifdef MELK_OS_SLEEP_DEBUG
         start_tick = os_get_ticks();
 
         os_sleep(2000U);
@@ -246,11 +350,11 @@ static void app_task_3(void *argument)
         elapsed_ticks = (uint32_t)(end_tick - start_tick);
 
         kernel_record_sleep_measurement(&g_task_3_sleep_stats,
-                                                elapsed_ticks);
+                                        elapsed_ticks);
 
         gpio_toggle_blue_led();
 #else
-        kernel_print("[TASK 3] Running..\n");
+        kernel_write_task_message("TASK 3");
         gpio_toggle_blue_led();
 
         os_sleep(2000U);

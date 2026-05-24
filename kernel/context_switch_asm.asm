@@ -2,6 +2,7 @@
 
     .global SVC_Handler
     .global PendSV_Handler
+    .global os_get_exception_number
     .global os_irq_save
     .global os_irq_restore
 
@@ -113,6 +114,27 @@ pendsv_select_next:
 pendsv_fault_loop:
         B       pendsv_fault_loop
 
+    .endasmfunc
+
+
+; =============================================================================
+; os_get_exception_number
+;
+; Returns IPSR:
+;   0     -> Thread mode
+;   != 0  -> Handler mode / active exception
+;
+; Kernel services that may block use this helper to reject calls from ISRs.
+; =============================================================================
+
+    .sect ".text:os_get_exception_number"
+    .align 4
+    .thumbfunc os_get_exception_number
+
+os_get_exception_number:
+    .asmfunc
+        MRS     R0, IPSR
+        BX      LR
     .endasmfunc
 
 

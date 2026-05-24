@@ -324,3 +324,62 @@ uint32_t task_wake_expired_sleeping_tasks(uint32_t current_tick)
 
     return woken_tasks;
 }
+
+int32_t task_block(uint32_t task_id)
+{
+    task_control_block_t *task;
+
+    if (task_id >= g_task_count)
+    {
+        return TASK_ERROR_INVALID_ID;
+    }
+
+    if (task_id == TASK_IDLE_TASK_ID)
+    {
+        return TASK_ERROR_IDLE_OPERATION;
+    }
+
+    task = &g_task_table[task_id];
+
+    if (task->state != TASK_STATE_RUNNING)
+    {
+        return TASK_ERROR_INVALID_STATE;
+    }
+
+    /*
+     * A blocked task is waiting for a kernel resource, not for time.
+     * Keep wakeup_tick clear so BLOCKED and SLEEPING remain independent.
+     */
+    task->wakeup_tick = 0U;
+    task->state = TASK_STATE_BLOCKED;
+
+    return TASK_OK;
+}
+
+int32_t task_unblock(uint32_t task_id)
+{
+    task_control_block_t *task;
+
+    if (task_id >= g_task_count)
+    {
+        return TASK_ERROR_INVALID_ID;
+    }
+
+    if (task_id == TASK_IDLE_TASK_ID)
+    {
+        return TASK_ERROR_IDLE_OPERATION;
+    }
+
+    task = &g_task_table[task_id];
+
+    if (task->state != TASK_STATE_BLOCKED)
+    {
+        return TASK_ERROR_INVALID_STATE;
+    }
+
+    task->wakeup_tick = 0U;
+    task->state = TASK_STATE_READY;
+
+    return TASK_OK;
+}
+

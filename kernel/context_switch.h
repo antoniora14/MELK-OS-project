@@ -38,6 +38,9 @@ uint32_t os_context_switch_is_started(void);
  */
 void os_context_switch_mark_started(void);
 
+/* Returns zero in Thread mode and a non-zero exception number in Handler mode. */
+uint32_t os_get_exception_number(void);
+
 /* Saves PRIMASK and disables interrupts. */
 uint32_t os_irq_save(void);
 

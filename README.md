@@ -445,20 +445,18 @@ Implemented:
 Status: **In Progress — first service implemented and validated**
 
 Implemented and validated:
-
-- Time-based `TASK_STATE_SLEEPING` usage
-- Wakeup tick information in the Task Control Block
-- `os_sleep(uint32_t milliseconds)`
-- Non-blocking sleep for scheduled tasks
-- Automatic task wakeup processing driven by SysTick
-- Scheduler exclusion of sleeping tasks
-- Immediate CPU release when a task sleeps
-- Idle task execution when no application task is READY
-- Sleep timing verification using 500 ms, 1000 ms and 2000 ms tasks
+- Non-blocking os_sleep()
+- Automatic wakeup of sleeping tasks from SysTick
+- TASK_STATE_SLEEPING for timed blocking
+- Simple blocking mutex
+- TASK_STATE_BLOCKED for resource waiting
+- Mutex-protected UART output from application tasks
+- Direct ownership handoff to waiting tasks
+- Recursive lock rejection
+- Non-owner unlock rejection
+- Stress validation with three concurrent tasks
 
 Pending in this phase:
-
-- Simple mutex service
 - Semaphore service
 - Message queue service
 - Protection strategy for concurrent UART/kernel diagnostic output
