@@ -45,48 +45,49 @@ typedef enum
 
 typedef struct
 {
-    uint32_t id;
-    const char *name;
-    task_entry_t entry;
-    void *argument;
+    uint32_t        id;
+    const char      *name;
+    task_entry_t    entry;
+    void            *argument;
 
-    task_state_t state;
+    task_state_t    state;
 
-    uint32_t *stack_base;
-    uint32_t *stack_top;
+    uint32_t        *stack_base;
+    uint32_t        *stack_top;
 
-    /*
-     * Saved PSP value for this task.
-     *
+    /* Saved PSP value for this task.
      * During context switch:
      * - PendSV stores the current PSP here.
-     * - PendSV loads this value when restoring the task.
-     */
-    uint32_t *stack_pointer;
-    uint32_t stack_size_words;
+     * - PendSV loads this value when restoring the task. */
+    uint32_t        *stack_pointer;
+    uint32_t        stack_size_words;
 
     /* Absolute kernel tick at which a sleeping task becomes READY again. */
-    uint32_t wakeup_tick;
+    uint32_t        wakeup_tick;
 } task_control_block_t;
 
-void task_system_init(void);
-int32_t task_create(const char *name, task_entry_t entry, void *argument);
-int32_t task_set_state(uint32_t task_id, task_state_t state);
+
+
+void     task_system_init(void);
+int32_t  task_create(const char *name, task_entry_t entry, void *argument);
+int32_t  task_set_state(uint32_t task_id, task_state_t state);
 uint32_t task_get_count(void);
+
 const task_control_block_t *task_get_table(void);
 const task_control_block_t *task_get_by_id(uint32_t task_id);
-void idle_task(void *argument);
+
+void     idle_task(void *argument);
 
 uint32_t *task_get_stack_pointer(uint32_t task_id);
-int32_t task_set_stack_pointer(uint32_t task_id, uint32_t *stack_pointer);
+int32_t  task_set_stack_pointer(uint32_t task_id, uint32_t *stack_pointer);
 
 /* Time-based blocking used by os_sleep(). */
-int32_t task_sleep_until(uint32_t task_id, uint32_t wakeup_tick);
-int32_t task_wake(uint32_t task_id);
+int32_t  task_sleep_until(uint32_t task_id, uint32_t wakeup_tick);
+int32_t  task_wake(uint32_t task_id);
 uint32_t task_wake_expired_sleeping_tasks(uint32_t current_tick);
 
 /* Resource-based blocking used by synchronization primitives such as mutexes. */
-int32_t task_block(uint32_t task_id);
-int32_t task_unblock(uint32_t task_id);
+int32_t  task_block(uint32_t task_id);
+int32_t  task_unblock(uint32_t task_id);
 
 #endif /* KERNEL_TASK_H_ */

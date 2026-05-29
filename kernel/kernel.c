@@ -11,58 +11,98 @@
 #include "task_scheduler.h"
 #include "context_switch.h"
 #include "mutex.h"
+#include "semaphore.h"
 
-/*
+
+/***********************************************************
  * Optional validation modes.
  * Enable only the validation you are currently executing.
- */
+ **********************************************************/
 //#define MELK_OS_SLEEP_DEBUG
-#define MELK_OS_MUTEX_DEBUG
+//#define MELK_OS_MUTEX_DEBUG
+//#define MELK_OS_SEMAPHORE_DEBUG
+
+
+
+/* Set to 1U while validating the counting semaphore service.
+   Set to 0U to restore the normal sleep/mutex demonstration.*/
+#define MELK_OS_SEMAPHORE_DEMO_ENABLED       1U
+
+#define KERNEL_SEMAPHORE_RESOURCE_CAPACITY   2U
+#define KERNEL_SEMAPHORE_RESOURCE_HOLD_MS    200U
+#define KERNEL_TASK_1_REST_MS                50U
+#define KERNEL_TASK_2_REST_MS                75U
+#define KERNEL_TASK_3_REST_MS                100U
+
+#if defined(MELK_OS_SLEEP_DEBUG) && (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    #error "Disable MELK_OS_SEMAPHORE_DEMO_ENABLED while validating os_sleep timing"
+#endif
 
 static os_mutex_t g_console_mutex;
 
+#if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    static os_semaphore_t g_resource_semaphore;
+#endif
+
 #ifdef MELK_OS_SLEEP_DEBUG
-typedef struct
-{
-    volatile uint32_t sample_count;
-    volatile uint32_t requested_ticks;
-    volatile uint32_t last_elapsed_ticks;
-    volatile uint32_t minimum_elapsed_ticks;
-    volatile uint32_t maximum_elapsed_ticks;
-    volatile uint32_t early_wakeup_count;
-} sleep_test_statistics_t;
+    typedef struct
+    {
+        volatile uint32_t sample_count;
+        volatile uint32_t requested_ticks;
+        volatile uint32_t last_elapsed_ticks;
+        volatile uint32_t minimum_elapsed_ticks;
+        volatile uint32_t maximum_elapsed_ticks;
+        volatile uint32_t early_wakeup_count;
+    } sleep_test_statistics_t;
 
-volatile sleep_test_statistics_t g_task_1_sleep_stats =
-{
-    0U, 500U, 0U, 0xFFFFFFFFU, 0U, 0U
-};
+    volatile sleep_test_statistics_t g_task_1_sleep_stats =
+    { 0U, 500U, 0U, 0xFFFFFFFFU, 0U, 0U };
 
-volatile sleep_test_statistics_t g_task_2_sleep_stats =
-{
-    0U, 1000U, 0U, 0xFFFFFFFFU, 0U, 0U
-};
+    volatile sleep_test_statistics_t g_task_2_sleep_stats =
+    { 0U, 1000U, 0U, 0xFFFFFFFFU, 0U, 0U };
 
-volatile sleep_test_statistics_t g_task_3_sleep_stats =
-{
-    0U, 2000U, 0U, 0xFFFFFFFFU, 0U, 0U
-};
+    volatile sleep_test_statistics_t g_task_3_sleep_stats =
+    { 0U, 2000U, 0U, 0xFFFFFFFFU, 0U, 0U };
 
-static void kernel_record_sleep_measurement(
-    volatile sleep_test_statistics_t *statistics,
-    uint32_t elapsed_ticks);
+    static void kernel_record_sleep_measurement(
+            volatile sleep_test_statistics_t *statistics,
+            uint32_t elapsed_ticks);
 #endif
 
 #ifdef MELK_OS_MUTEX_DEBUG
-volatile uint32_t g_mutex_critical_depth = 0U;
-volatile uint32_t g_mutex_violation_count = 0U;
-volatile uint32_t g_mutex_protected_print_count = 0U;
-volatile uint32_t g_mutex_error_count = 0U;
+    volatile uint32_t g_mutex_critical_depth = 0U;
+    volatile uint32_t g_mutex_violation_count = 0U;
+    volatile uint32_t g_mutex_protected_print_count = 0U;
+    volatile uint32_t g_mutex_error_count = 0U;
+#endif
+
+#if defined(MELK_OS_SEMAPHORE_DEBUG) && (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    volatile uint32_t g_semaphore_active_users = 0U;
+    volatile uint32_t g_semaphore_max_active_users = 0U;
+    volatile uint32_t g_semaphore_violation_count = 0U;
+    volatile uint32_t g_semaphore_wait_success_count = 0U;
+    volatile uint32_t g_semaphore_post_success_count = 0U;
+    volatile uint32_t g_semaphore_error_count = 0U;
 #endif
 
 static void app_task_1(void *argument);
 static void app_task_2(void *argument);
 static void app_task_3(void *argument);
-static void kernel_write_task_message(const char *task_name);
+
+#ifndef MELK_OS_SLEEP_DEBUG
+    static void kernel_write_task_event(const char *task_name, const char *event);
+#if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    static void kernel_run_semaphore_worker(const char *task_name,
+                                        void (*toggle_led)(void),
+                                        uint32_t rest_time_ms);
+#ifdef MELK_OS_SEMAPHORE_DEBUG
+    static void kernel_record_semaphore_enter(void);
+    static void kernel_record_semaphore_exit(void);
+    static void kernel_record_semaphore_post_success(void);
+    static void kernel_record_semaphore_error(void);
+#endif
+#endif
+#endif
 
 
 
@@ -75,6 +115,9 @@ void kernel_main(void)
 {
     uint32_t systick_status;
     int32_t mutex_status;
+#if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    int32_t semaphore_status;
+#endif
     int32_t task1_id;
     int32_t task2_id;
     int32_t task3_id;
@@ -121,6 +164,24 @@ void kernel_main(void)
         {
         }
     }
+
+#if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    semaphore_status = os_semaphore_init(&g_resource_semaphore,
+                                         KERNEL_SEMAPHORE_RESOURCE_CAPACITY,
+                                         KERNEL_SEMAPHORE_RESOURCE_CAPACITY);
+
+    if (semaphore_status == OS_SEMAPHORE_OK)
+    {
+        kernel_print("[OK] Counting semaphore initialized with 2 resource slots\n");
+    }
+    else
+    {
+        kernel_print("[ERROR] Counting semaphore initialization failed\n");
+        while (1)
+        {
+        }
+    }
+#endif
 
     task1_id = task_create("app_task_1", app_task_1, 0);
     task2_id = task_create("app_task_2", app_task_2, 0);
@@ -172,40 +233,33 @@ void kernel_main(void)
 }
 
 
-/***********************************************************
- *
- *
- **********************************************************/
 #ifdef MELK_OS_SLEEP_DEBUG
-static void kernel_record_sleep_measurement(
-    volatile sleep_test_statistics_t *statistics,
-    uint32_t elapsed_ticks)
-{
-    statistics->sample_count++;
-    statistics->last_elapsed_ticks = elapsed_ticks;
-
-    if (elapsed_ticks < statistics->minimum_elapsed_ticks)
+    static void kernel_record_sleep_measurement(
+        volatile sleep_test_statistics_t *statistics,
+        uint32_t elapsed_ticks)
     {
-        statistics->minimum_elapsed_ticks = elapsed_ticks;
-    }
+        statistics->sample_count++;
+        statistics->last_elapsed_ticks = elapsed_ticks;
 
-    if (elapsed_ticks > statistics->maximum_elapsed_ticks)
-    {
-        statistics->maximum_elapsed_ticks = elapsed_ticks;
-    }
+        if (elapsed_ticks < statistics->minimum_elapsed_ticks)
+        {
+            statistics->minimum_elapsed_ticks = elapsed_ticks;
+        }
 
-    if (elapsed_ticks < statistics->requested_ticks)
-    {
-        statistics->early_wakeup_count++;
+        if (elapsed_ticks > statistics->maximum_elapsed_ticks)
+        {
+            statistics->maximum_elapsed_ticks = elapsed_ticks;
+        }
+
+        if (elapsed_ticks < statistics->requested_ticks)
+        {
+            statistics->early_wakeup_count++;
+        }
     }
-}
 #endif
 
-
-/***********************************************************
- *
- **********************************************************/
-static void kernel_write_task_message(const char *task_name)
+#ifndef MELK_OS_SLEEP_DEBUG
+static void kernel_write_task_event(const char *task_name, const char *event)
 {
     int32_t mutex_status;
 
@@ -232,7 +286,9 @@ static void kernel_write_task_message(const char *task_name)
     kernel_print(task_name);
     kernel_print("] tick=");
     kernel_print_uint32(os_get_ticks());
-    kernel_print(" protected UART output\n");
+    kernel_print(" ");
+    kernel_print(event);
+    kernel_print("\n");
 
 #ifdef MELK_OS_MUTEX_DEBUG
     g_mutex_protected_print_count++;
@@ -251,113 +307,216 @@ static void kernel_write_task_message(const char *task_name)
 #endif
 }
 
-/***********************************************************
- *
- *
- **********************************************************/
-static void app_task_1(void *argument)
+#if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+#ifdef MELK_OS_SEMAPHORE_DEBUG
+static void kernel_record_semaphore_enter(void)
 {
-#ifdef MELK_OS_SLEEP_DEBUG
-    uint32_t start_tick;
-    uint32_t end_tick;
-    uint32_t elapsed_ticks;
-#endif
+    uint32_t irq_state;
 
-    (void)argument;
+    irq_state = os_irq_save();
+
+    g_semaphore_active_users++;
+    g_semaphore_wait_success_count++;
+
+    if (g_semaphore_active_users > g_semaphore_max_active_users)
+    {
+        g_semaphore_max_active_users = g_semaphore_active_users;
+    }
+
+    if (g_semaphore_active_users > KERNEL_SEMAPHORE_RESOURCE_CAPACITY)
+    {
+        g_semaphore_violation_count++;
+    }
+
+    os_irq_restore(irq_state);
+}
+
+static void kernel_record_semaphore_exit(void)
+{
+    uint32_t irq_state;
+
+    irq_state = os_irq_save();
+
+    if (g_semaphore_active_users == 0U)
+    {
+        g_semaphore_violation_count++;
+    }
+    else
+    {
+        g_semaphore_active_users--;
+    }
+
+    os_irq_restore(irq_state);
+}
+
+static void kernel_record_semaphore_post_success(void)
+{
+    uint32_t irq_state;
+
+    irq_state = os_irq_save();
+    g_semaphore_post_success_count++;
+    os_irq_restore(irq_state);
+}
+
+static void kernel_record_semaphore_error(void)
+{
+    uint32_t irq_state;
+
+    irq_state = os_irq_save();
+    g_semaphore_error_count++;
+    os_irq_restore(irq_state);
+}
+#endif /* MELK_OS_SEMAPHORE_DEBUG */
+
+static void kernel_run_semaphore_worker(
+        const char *task_name,
+        void (*toggle_led)(void),
+        uint32_t rest_time_ms)
+{
+    int32_t semaphore_status;
 
     while (1)
     {
+        semaphore_status = os_semaphore_wait(&g_resource_semaphore);
+
+        if (semaphore_status != OS_SEMAPHORE_OK)
+        {
+#ifdef MELK_OS_SEMAPHORE_DEBUG
+        kernel_record_semaphore_error();
+#endif
+            os_sleep(rest_time_ms);
+            continue;
+        }
+
+#ifdef MELK_OS_SEMAPHORE_DEBUG
+        kernel_record_semaphore_enter();
+#endif
+
+        kernel_write_task_event(task_name, "acquired semaphore resource slot");
+        toggle_led();
+
+        /* Hold one simulated resource slot long enough to force contention. */
+        os_sleep(KERNEL_SEMAPHORE_RESOURCE_HOLD_MS);
+
+        kernel_write_task_event(task_name, "releasing semaphore resource slot");
+
+#ifdef MELK_OS_SEMAPHORE_DEBUG
+        kernel_record_semaphore_exit();
+#endif
+
+        semaphore_status = os_semaphore_post(&g_resource_semaphore);
+
+#ifdef MELK_OS_SEMAPHORE_DEBUG
+        if (semaphore_status == OS_SEMAPHORE_OK)
+        {
+            kernel_record_semaphore_post_success();
+        }
+        else
+        {
+            kernel_record_semaphore_error();
+        }
+#else
+        (void)semaphore_status;
+#endif
+
+        os_sleep(rest_time_ms);
+    }
+}
+#endif /* MELK_OS_SEMAPHORE_DEMO_ENABLED */
+#endif /* MELK_OS_SLEEP_DEBUG */
+
+static void app_task_1(void *argument)
+{
+	(void)argument;
+
 #ifdef MELK_OS_SLEEP_DEBUG
+    while (1)
+    {
+        uint32_t start_tick;
+        uint32_t end_tick;
+        uint32_t elapsed_ticks;
+
         start_tick = os_get_ticks();
-
         os_sleep(500U);
-
         end_tick = os_get_ticks();
         elapsed_ticks = (uint32_t)(end_tick - start_tick);
 
         kernel_record_sleep_measurement(&g_task_1_sleep_stats,
                                         elapsed_ticks);
-
         gpio_toggle_green_led();
-#else
-        kernel_write_task_message("TASK 1");
-        gpio_toggle_green_led();
-
-        os_sleep(500U);
-#endif
     }
-}
-
-/***********************************************************
- *
- *
- **********************************************************/
-static void app_task_2(void *argument)
-{
-#ifdef MELK_OS_SLEEP_DEBUG
-    uint32_t start_tick;
-    uint32_t end_tick;
-    uint32_t elapsed_ticks;
-#endif
-
-    (void)argument;
-
+#elif (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+        kernel_run_semaphore_worker("TASK 1", gpio_toggle_green_led, KERNEL_TASK_1_REST_MS);
+#else
     while (1)
     {
+        kernel_write_task_event("TASK 1", "protected UART output");
+        gpio_toggle_green_led();
+        os_sleep(500U);
+    }
+#endif
+}
+
+static void app_task_2(void *argument)
+{
+    (void)argument;
+
 #ifdef MELK_OS_SLEEP_DEBUG
+    while (1)
+    {
+        uint32_t start_tick;
+        uint32_t end_tick;
+        uint32_t elapsed_ticks;
+
         start_tick = os_get_ticks();
-
         os_sleep(1000U);
-
         end_tick = os_get_ticks();
         elapsed_ticks = (uint32_t)(end_tick - start_tick);
 
         kernel_record_sleep_measurement(&g_task_2_sleep_stats,
                                         elapsed_ticks);
-
         gpio_toggle_red_led();
-#else
-        kernel_write_task_message("TASK 2");
-        gpio_toggle_red_led();
-
-        os_sleep(1000U);
-#endif
     }
-}
-
-/***********************************************************
- *
- *
- **********************************************************/
-static void app_task_3(void *argument)
-{
-#ifdef MELK_OS_SLEEP_DEBUG
-    uint32_t start_tick;
-    uint32_t end_tick;
-    uint32_t elapsed_ticks;
-#endif
-
-    (void)argument;
-
+#elif (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    kernel_run_semaphore_worker("TASK 2", gpio_toggle_red_led, KERNEL_TASK_2_REST_MS);
+#else
     while (1)
     {
+        kernel_write_task_event("TASK 2", "protected UART output");
+        gpio_toggle_red_led();
+        os_sleep(1000U);
+    }
+#endif
+}
+
+static void app_task_3(void *argument)
+{
+	(void)argument;
+
 #ifdef MELK_OS_SLEEP_DEBUG
+    while (1)
+    {
+        uint32_t start_tick;
+        uint32_t end_tick;
+        uint32_t elapsed_ticks;
+
         start_tick = os_get_ticks();
-
         os_sleep(2000U);
-
         end_tick = os_get_ticks();
         elapsed_ticks = (uint32_t)(end_tick - start_tick);
 
         kernel_record_sleep_measurement(&g_task_3_sleep_stats,
                                         elapsed_ticks);
-
         gpio_toggle_blue_led();
-#else
-        kernel_write_task_message("TASK 3");
-        gpio_toggle_blue_led();
-
-        os_sleep(2000U);
-#endif
     }
+#elif (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
+    kernel_run_semaphore_worker("TASK 3", gpio_toggle_blue_led, KERNEL_TASK_3_REST_MS);
+#else
+    while (1)
+    {
+        kernel_write_task_event("TASK 3", "protected UART output");
+        gpio_toggle_blue_led();
+        os_sleep(2000U);
+    }
+#endif
 }

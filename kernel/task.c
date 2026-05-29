@@ -7,28 +7,20 @@
 
 #include "task.h"
 
-/*
- * Static task table.
+
+/* Static task table.
  * For now, MELK OS uses a fixed-size task table.
- * Dynamic memory allocation is intentionally avoided.
- */
+ * Dynamic memory allocation is intentionally avoided.*/
 static task_control_block_t g_task_table[OS_MAX_TASKS];
-
-/*
- * Static stacks for all tasks.
- * Each task receives one private stack.
- */
+/* Static stacks for all tasks.
+ * Each task receives one private stack.*/
 static uint32_t g_task_stacks[OS_MAX_TASKS][OS_TASK_STACK_SIZE_WORDS];
-
-/*
- * Number of created tasks.
- */
+/* Number of created tasks.*/
 static uint32_t g_task_count = 0U;
 
 static void task_exit_trap(void)
 {
-    /*
-     * A task should never return.
+    /* A task should never return.
      *
      * If execution reaches this function, it means a task returned from
      * its entry function. For now, stop here.
@@ -38,11 +30,9 @@ static void task_exit_trap(void)
     }
 }
 
-static uint32_t task_has_wakeup_tick_expired(uint32_t current_tick,
-                                             uint32_t wakeup_tick)
+static uint32_t task_has_wakeup_tick_expired(uint32_t current_tick, uint32_t wakeup_tick)
 {
-    /*
-     * Wrap-safe tick comparison.
+    /* Wrap-safe tick comparison.
      * This works as long as sleep intervals are shorter than 2^31 ticks.
      */
     if ((uint32_t)(current_tick - wakeup_tick) < 0x80000000U)
@@ -53,20 +43,16 @@ static uint32_t task_has_wakeup_tick_expired(uint32_t current_tick,
     return 0U;
 }
 
-static uint32_t *task_prepare_initial_stack(uint32_t *stack_top,
-                                            task_entry_t entry,
-                                            void *argument)
+static uint32_t *task_prepare_initial_stack(uint32_t *stack_top, task_entry_t entry, void *argument)
 {
     uint32_t *sp;
 
-    /*
-     * Cortex-M expects the process stack to be 8-byte aligned on exception
+    /* Cortex-M expects the process stack to be 8-byte aligned on exception
      * entry/return. Align the initial top of stack down to 8 bytes.
      */
     sp = (uint32_t *)((uint32_t)stack_top & ~0x7U);
 
-    /*
-     * Initial Cortex-M hardware exception frame.
+    /* Initial Cortex-M hardware exception frame.
      *
      * This is the frame that the CPU automatically restores on exception
      * return:
@@ -84,8 +70,7 @@ static uint32_t *task_prepare_initial_stack(uint32_t *stack_top,
     *(--sp) = 0x01010101U;              /* R1 */
     *(--sp) = (uint32_t)argument;       /* R0: task argument */
 
-    /*
-     * Software-saved registers.
+    /* Software-saved registers.
      *
      * PendSV restores these manually before exception return.
      */
@@ -121,16 +106,12 @@ void task_system_init(void)
         g_task_table[i].stack_size_words = 0U;
     }
 
-    /*
-     * Reserve task 0 for the idle task.
-     * The scheduler will use this task when no other task is READY.
-     */
+    /* Reserve task 0 for the idle task.
+     * The scheduler will use this task when no other task is READY.*/
     (void)task_create("idle", idle_task, 0);
 }
 
-int32_t task_create(const char *name,
-                    task_entry_t entry,
-                    void *argument)
+int32_t task_create(const char *name, task_entry_t entry, void *argument)
 {
     uint32_t task_id;
     uint32_t *stack_base;
@@ -194,8 +175,7 @@ void idle_task(void *argument)
 
     while (1)
     {
-        /*
-         * For now the idle task keeps the CPU in a safe loop.
+        /* For now the idle task keeps the CPU in a safe loop.
          * Later this can use WFI to reduce power consumption:
          * __asm(" WFI");
          */
