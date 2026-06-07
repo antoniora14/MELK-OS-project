@@ -12,6 +12,7 @@
 #include "context_switch.h"
 #include "mutex.h"
 #include "semaphore.h"
+#include "message_queue.h"
 
 
 /***********************************************************
@@ -21,12 +22,16 @@
 //#define MELK_OS_SLEEP_DEBUG
 //#define MELK_OS_MUTEX_DEBUG
 //#define MELK_OS_SEMAPHORE_DEBUG
+//#define MELK_OS_MESSAGE_QUEUE_DEBUG
 
 
 
 /* Set to 1U while validating the counting semaphore service.
    Set to 0U to restore the normal sleep/mutex demonstration.*/
-#define MELK_OS_SEMAPHORE_DEMO_ENABLED       1U
+#define MELK_OS_SEMAPHORE_DEMO_ENABLED       0U
+
+/* Set to 1U while validating the blocking static message queue service. */
+#define MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED   1U
 
 #define KERNEL_SEMAPHORE_RESOURCE_CAPACITY   2U
 #define KERNEL_SEMAPHORE_RESOURCE_HOLD_MS    200U
@@ -34,14 +39,51 @@
 #define KERNEL_TASK_2_REST_MS                75U
 #define KERNEL_TASK_3_REST_MS                100U
 
-#if defined(MELK_OS_SLEEP_DEBUG) && (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
-    #error "Disable MELK_OS_SEMAPHORE_DEMO_ENABLED while validating os_sleep timing"
+/* Set to 1U to force queue-full conditions with fast producers and
+   a slower consumer. Keep 0U for the normal educational demo. */
+#define KERNEL_MESSAGE_QUEUE_STRESS_TEST     0U
+
+#if (KERNEL_MESSAGE_QUEUE_STRESS_TEST != 0U)
+#define KERNEL_MESSAGE_QUEUE_CAPACITY        2U
+#define KERNEL_PRODUCER_1_SLEEP_MS           20U
+#define KERNEL_PRODUCER_2_SLEEP_MS           30U
+#define KERNEL_CONSUMER_PROCESSING_MS        300U
+#else
+#define KERNEL_MESSAGE_QUEUE_CAPACITY        4U
+#define KERNEL_PRODUCER_1_SLEEP_MS           500U
+#define KERNEL_PRODUCER_2_SLEEP_MS           1000U
+#define KERNEL_CONSUMER_PROCESSING_MS        0U
+#endif
+
+#if defined(MELK_OS_SLEEP_DEBUG) && \
+    ((MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U) || \
+     (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U))
+    #error "Disable demo modes while validating os_sleep timing"
+#endif
+
+#if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U) && \
+    (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    #error "Enable only one kernel service demo at a time"
 #endif
 
 static os_mutex_t g_console_mutex;
 
 #if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
     static os_semaphore_t g_resource_semaphore;
+#endif
+
+#if (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+typedef struct
+{
+    uint32_t producer_id;
+    uint32_t sequence;
+    uint32_t production_tick;
+} kernel_queue_message_t;
+
+static kernel_queue_message_t
+    g_message_queue_storage[KERNEL_MESSAGE_QUEUE_CAPACITY];
+
+static os_message_queue_t g_message_queue;
 #endif
 
 #ifdef MELK_OS_SLEEP_DEBUG
@@ -85,6 +127,16 @@ static os_mutex_t g_console_mutex;
     volatile uint32_t g_semaphore_error_count = 0U;
 #endif
 
+#if defined(MELK_OS_MESSAGE_QUEUE_DEBUG) && \
+    (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    volatile uint32_t g_message_queue_send_success_count = 0U;
+    volatile uint32_t g_message_queue_receive_success_count = 0U;
+    volatile uint32_t g_message_queue_error_count = 0U;
+    volatile uint32_t g_message_queue_producer_1_expected_sequence = 0U;
+    volatile uint32_t g_message_queue_producer_2_expected_sequence = 0U;
+    volatile uint32_t g_message_queue_sequence_error_count = 0U;
+#endif
+
 static void app_task_1(void *argument);
 static void app_task_2(void *argument);
 static void app_task_3(void *argument);
@@ -102,6 +154,24 @@ static void app_task_3(void *argument);
     static void kernel_record_semaphore_error(void);
 #endif
 #endif
+
+#if (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    static void kernel_run_queue_producer(const char *task_name,
+                                          uint32_t producer_id,
+                                          void (*toggle_led)(void),
+                                          uint32_t period_ms);
+    static void kernel_run_queue_consumer(const char *task_name,
+                                          void (*toggle_led)(void));
+    static void kernel_write_queue_message(const char *task_name,
+                                           const char *event,
+                                           const kernel_queue_message_t *message);
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+    static void kernel_record_message_queue_send_success(void);
+    static void kernel_record_message_queue_receive_success(
+            const kernel_queue_message_t *message);
+    static void kernel_record_message_queue_error(void);
+#endif
+#endif
 #endif
 
 
@@ -117,6 +187,9 @@ void kernel_main(void)
     int32_t mutex_status;
 #if (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
     int32_t semaphore_status;
+#endif
+#if (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    int32_t message_queue_status;
 #endif
     int32_t task1_id;
     int32_t task2_id;
@@ -152,7 +225,6 @@ void kernel_main(void)
     task_system_init();
 
     mutex_status = os_mutex_init(&g_console_mutex);
-
     if (mutex_status == OS_MUTEX_OK)
     {
         kernel_print("[OK] Console mutex initialized\n");
@@ -177,6 +249,27 @@ void kernel_main(void)
     else
     {
         kernel_print("[ERROR] Counting semaphore initialization failed\n");
+        while (1)
+        {
+        }
+    }
+#endif
+
+#if (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    message_queue_status = os_message_queue_init(&g_message_queue,
+                                                 g_message_queue_storage,
+                                                 sizeof(kernel_queue_message_t),
+                                                 KERNEL_MESSAGE_QUEUE_CAPACITY);
+
+    if (message_queue_status == OS_MESSAGE_QUEUE_OK)
+    {
+        kernel_print("[OK] Message queue initialized with capacity ");
+        kernel_print_uint32(KERNEL_MESSAGE_QUEUE_CAPACITY);
+        kernel_print("\n");
+    }
+    else
+    {
+        kernel_print("[ERROR] Message queue initialization failed\n");
         while (1)
         {
         }
@@ -423,6 +516,181 @@ static void kernel_run_semaphore_worker(
     }
 }
 #endif /* MELK_OS_SEMAPHORE_DEMO_ENABLED */
+#if (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+static void kernel_record_message_queue_send_success(void)
+{
+    uint32_t irq_state;
+
+    irq_state = os_irq_save();
+    g_message_queue_send_success_count++;
+    os_irq_restore(irq_state);
+}
+
+static void kernel_record_message_queue_receive_success(
+        const kernel_queue_message_t *message)
+{
+    uint32_t irq_state;
+    uint32_t expected_sequence;
+
+    irq_state = os_irq_save();
+
+    g_message_queue_receive_success_count++;
+
+    if (message->producer_id == 1U)
+    {
+        expected_sequence = g_message_queue_producer_1_expected_sequence;
+
+        if (message->sequence != expected_sequence)
+        {
+            g_message_queue_sequence_error_count++;
+        }
+
+        g_message_queue_producer_1_expected_sequence = message->sequence + 1U;
+    }
+    else if (message->producer_id == 2U)
+    {
+        expected_sequence = g_message_queue_producer_2_expected_sequence;
+
+        if (message->sequence != expected_sequence)
+        {
+            g_message_queue_sequence_error_count++;
+        }
+
+        g_message_queue_producer_2_expected_sequence = message->sequence + 1U;
+    }
+    else
+    {
+        g_message_queue_sequence_error_count++;
+    }
+
+    os_irq_restore(irq_state);
+}
+
+static void kernel_record_message_queue_error(void)
+{
+    uint32_t irq_state;
+
+    irq_state = os_irq_save();
+    g_message_queue_error_count++;
+    os_irq_restore(irq_state);
+}
+#endif /* MELK_OS_MESSAGE_QUEUE_DEBUG */
+
+static void kernel_write_queue_message(const char *task_name,
+                                       const char *event,
+                                       const kernel_queue_message_t *message)
+{
+    int32_t mutex_status;
+
+    mutex_status = os_mutex_lock(&g_console_mutex);
+
+    if (mutex_status != OS_MUTEX_OK)
+    {
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+        kernel_record_message_queue_error();
+#endif
+        return;
+    }
+
+    kernel_print("[");
+    kernel_print(task_name);
+    kernel_print("] tick=");
+    kernel_print_uint32(os_get_ticks());
+    kernel_print(" ");
+    kernel_print(event);
+    kernel_print(" producer=");
+    kernel_print_uint32(message->producer_id);
+    kernel_print(" sequence=");
+    kernel_print_uint32(message->sequence);
+    kernel_print(" produced_tick=");
+    kernel_print_uint32(message->production_tick);
+    kernel_print("\n");
+
+    mutex_status = os_mutex_unlock(&g_console_mutex);
+
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+    if (mutex_status != OS_MUTEX_OK)
+    {
+        kernel_record_message_queue_error();
+    }
+#else
+    (void)mutex_status;
+#endif
+}
+
+static void kernel_run_queue_producer(const char *task_name,
+                                      uint32_t producer_id,
+                                      void (*toggle_led)(void),
+                                      uint32_t period_ms)
+{
+    kernel_queue_message_t message;
+    uint32_t sequence;
+    int32_t queue_status;
+
+    sequence = 0U;
+
+    while (1)
+    {
+        message.producer_id = producer_id;
+        message.sequence = sequence;
+        message.production_tick = os_get_ticks();
+
+        queue_status = os_message_queue_send(&g_message_queue, &message);
+
+        if (queue_status == OS_MESSAGE_QUEUE_OK)
+        {
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+            kernel_record_message_queue_send_success();
+#endif
+            kernel_write_queue_message(task_name, "sent queue message", &message);
+            toggle_led();
+            sequence++;
+        }
+        else
+        {
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+            kernel_record_message_queue_error();
+#endif
+        }
+
+        os_sleep(period_ms);
+    }
+}
+
+static void kernel_run_queue_consumer(const char *task_name,
+                                      void (*toggle_led)(void))
+{
+    kernel_queue_message_t message;
+    int32_t queue_status;
+
+    while (1)
+    {
+        queue_status = os_message_queue_receive(&g_message_queue, &message);
+
+        if (queue_status == OS_MESSAGE_QUEUE_OK)
+        {
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+            kernel_record_message_queue_receive_success(&message);
+#endif
+            kernel_write_queue_message(task_name, "received queue message", &message);
+            toggle_led();
+
+#if (KERNEL_CONSUMER_PROCESSING_MS > 0U)
+            os_sleep(KERNEL_CONSUMER_PROCESSING_MS);
+#endif
+        }
+        else
+        {
+#ifdef MELK_OS_MESSAGE_QUEUE_DEBUG
+            kernel_record_message_queue_error();
+#endif
+            os_sleep(100U);
+        }
+    }
+}
+#endif /* MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED */
+
 #endif /* MELK_OS_SLEEP_DEBUG */
 
 static void app_task_1(void *argument)
@@ -445,8 +713,13 @@ static void app_task_1(void *argument)
                                         elapsed_ticks);
         gpio_toggle_green_led();
     }
+#elif (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    kernel_run_queue_producer("TASK 1",
+                              1U,
+                              gpio_toggle_green_led,
+                              KERNEL_PRODUCER_1_SLEEP_MS);
 #elif (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
-        kernel_run_semaphore_worker("TASK 1", gpio_toggle_green_led, KERNEL_TASK_1_REST_MS);
+    kernel_run_semaphore_worker("TASK 1", gpio_toggle_green_led, KERNEL_TASK_1_REST_MS);
 #else
     while (1)
     {
@@ -477,6 +750,11 @@ static void app_task_2(void *argument)
                                         elapsed_ticks);
         gpio_toggle_red_led();
     }
+#elif (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    kernel_run_queue_producer("TASK 2",
+                              2U,
+                              gpio_toggle_red_led,
+                              KERNEL_PRODUCER_2_SLEEP_MS);
 #elif (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
     kernel_run_semaphore_worker("TASK 2", gpio_toggle_red_led, KERNEL_TASK_2_REST_MS);
 #else
@@ -509,6 +787,8 @@ static void app_task_3(void *argument)
                                         elapsed_ticks);
         gpio_toggle_blue_led();
     }
+#elif (MELK_OS_MESSAGE_QUEUE_DEMO_ENABLED != 0U)
+    kernel_run_queue_consumer("TASK 3", gpio_toggle_blue_led);
 #elif (MELK_OS_SEMAPHORE_DEMO_ENABLED != 0U)
     kernel_run_semaphore_worker("TASK 3", gpio_toggle_blue_led, KERNEL_TASK_3_REST_MS);
 #else

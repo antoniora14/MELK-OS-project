@@ -121,12 +121,18 @@ MELK_OS/
 │   ├── printk.c
 │   ├── printk.h
 │   ├── task.c
-│   └── task.h
+│   ├── task.h
 │   ├── task_scheduler.c
-│   └── task_scheduler.h
+│   ├── task_scheduler.h
 │   ├── context_switch.c
-│   └── context_switch.h
+│   ├── context_switch.h
 │   ├── context_switch_asm.asm
+│   ├── mutex.c
+│   ├── mutex.h
+│   ├── semaphore.c
+│   ├── semaphore.h
+│   ├── message_queue.c
+│   └── message_queue.h
 │
 └── README.md
 ```
@@ -442,25 +448,30 @@ Implemented:
 
 ### 🟡 Phase 6 — Basic Kernel Services
 
-Status: **In Progress — first service implemented and validated**
+Status: **In Progress**
 
 Implemented and validated:
-- Non-blocking os_sleep()
-- Automatic wakeup of sleeping tasks from SysTick
-- TASK_STATE_SLEEPING for timed blocking
-- Simple blocking mutex
-- TASK_STATE_BLOCKED for resource waiting
-- Mutex-protected UART output from application tasks
-- Direct ownership handoff to waiting tasks
-- Recursive lock rejection
-- Non-owner unlock rejection
-- Stress validation with three concurrent tasks
 
-Pending in this phase:
-- Semaphore service
-- Message queue service
-- Protection strategy for concurrent UART/kernel diagnostic output
-- Basic consolidated kernel service status/error codes as needed
+- Non-blocking `os_sleep()`
+- `TASK_STATE_SLEEPING` for time-based task blocking
+- Automatic wakeup of sleeping tasks from SysTick
+- Simple blocking mutex
+- `TASK_STATE_BLOCKED` for resource waiting
+- Mutex-protected UART output
+- Blocking counting semaphore
+- Direct resource handoff to waiting tasks
+- Static blocking message queue
+- Producer/consumer communication between tasks
+- FIFO message transfer using fixed-size messages
+- Queue blocking on empty receive
+- Queue blocking on full send
+- Hardware validation on EK-TM4C123GXL
+
+Pending:
+
+- Technical documentation
+- Optional ISR-safe signaling APIs
+- Additional API/error-code cleanup
 
 ---
 
